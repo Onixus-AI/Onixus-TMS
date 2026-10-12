@@ -1,0 +1,38 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #151922;
+  --line: #262c38;
+  --text: #e8eaf0;
+  --muted: #8b93a5;
+  --accent: #4f8bea;
+  --ok: #2fbf71;
+  --warn: #e0a326;
+  --bad: #ef5b5b;
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+.shell { max-width: 1040px; margin: 0 auto; padding: 24px 16px; }
+header { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+h1 { font-size: 20px; margin: 0; }
+h3 { margin: 6px 0 10px; font-size: 17px; }
+nav { display: flex; gap: 6px; flex-wrap: wrap; }
+button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
+button.active, form button { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.6; cursor: default; }
+input, textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: inherit; }
+textarea { margin-bottom: 10px; resize: vertical; }
+label { display: grid; gap: 6px; flex: 1; font-size: 13px; color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.row { display: flex; gap: 10px; align-items: end; margin-bottom: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.list { list-style: none; padding: 0; display: grid; gap: 10px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.pre { white-space: pre-wrap; }
+.error { color: var(--bad); }
+.badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+.badge.warn { color: var(--warn); border-color: var(--warn); }
+.badge.soon { color: var(--muted); }

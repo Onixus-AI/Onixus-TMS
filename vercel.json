@@ -1,15 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npm run build",
-  "outputDirectory": "apps/web/dist",
-  "crons": [
-    {
-      "path": "/api/cron/email-check",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/fmcsa-monitor",
-      "schedule": "0 2 * * *"
-    }
-  ]
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build --workspace @onixus/web",
+  "outputDirectory": "apps/web/dist"
 }

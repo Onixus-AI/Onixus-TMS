@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
+# The web app only needs the API's public URL; every secret stays on the API.
+vercel env add VITE_API_URL
 vercel --prod
-vercel env add SUPABASE_URL
-vercel env add SUPABASE_ANON_KEY
-vercel env add FMCSA_API_KEY
-vercel env add EMODAL_API_KEY
 echo "Vercel deployed"
