@@ -1,0 +1,7 @@
+{
+  "name": "business-crm-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {"dev": "tsx src/index.ts"},
+  "dependencies": {"express": "^4.18.0", "dotenv": "^16.0.0", "@supabase/supabase-js": "^2.39.0"}
+}

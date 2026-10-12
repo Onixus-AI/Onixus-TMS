@@ -1,0 +1,13 @@
+{
+  "name": "onixus-drayage-os",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "apps/mcp-servers/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build"
+  }
+}

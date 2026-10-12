@@ -1,0 +1,41 @@
+
+version: '3.9'
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    environment: [POSTGRES_PASSWORD=postgres, POSTGRES_DB=onixus]
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  ollama:
+    image: ollama/ollama
+    ports: ["11434:11434"]
+    volumes: ["ollama:/root/.ollama"]
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883", "9001:9001"]
+  email-mcp:
+    build: ./apps/mcp-servers/email-mcp
+    env_file: .env
+    ports: ["4001:4001"]
+  crm-mcp:
+    build: ./apps/mcp-servers/crm-mcp
+    env_file: .env
+    ports: ["4002:4002"]
+  onyx-mcp:
+    build: ./apps/mcp-servers/onyx-mcp
+    env_file: .env
+    ports: ["4003:4003"]
+  business-email-mcp:
+    build: ./apps/mcp-servers/business-email-mcp
+    env_file: .env
+    ports: ["4004:4004"]
+  business-crm-mcp:
+    build: ./apps/mcp-servers/business-crm-mcp
+    env_file: .env
+    ports: ["4005:4005"]
+volumes:
+  pgdata:
+  ollama:
