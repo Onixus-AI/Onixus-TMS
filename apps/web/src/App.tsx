@@ -167,7 +167,7 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <h1>Onixus Drayage OS</h1>
+        <h1>Onixus Logistics OS</h1>
         <nav>
           {tabs.map(([id, label]) => (
             <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
