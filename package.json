@@ -1,13 +1,16 @@
 {
   "name": "onixus-drayage-os",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "apps/mcp-servers/*",
-    "packages/*"
-  ],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "turbo run dev",
-    "build": "turbo run build"
-  }
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.6.0"
+  },
+  "packageManager": "npm@10.9.4"
 }

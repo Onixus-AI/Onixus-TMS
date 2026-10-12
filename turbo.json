@@ -1,13 +1,20 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "pipeline": {
+  "agentGuidance": false,
+  "tasks": {
     "build": {
       "dependsOn": [
         "^build"
+      ],
+      "outputs": [
+        "dist/**"
       ]
     },
+    "typecheck": {},
+    "test": {},
     "dev": {
-      "cache": false
+      "cache": false,
+      "persistent": true
     }
   }
 }

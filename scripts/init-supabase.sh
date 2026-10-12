@@ -5,5 +5,5 @@ supabase link --project-ref $SUPABASE_PROJECT_REF
 supabase db push
 supabase functions deploy fmcsa-monitor
 supabase functions deploy port-webhook
-supabase gen types typescript --local > packages/shared-types/supabase.ts
+supabase gen types typescript --linked > packages/providers/src/db/database.types.ts
 echo "Supabase ready"
