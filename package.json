@@ -1,5 +1,5 @@
 {
-  "name": "onixus-drayage-os",
+  "name": "onixus-logistics-os",
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {

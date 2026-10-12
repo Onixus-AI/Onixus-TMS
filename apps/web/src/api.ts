@@ -1,4 +1,4 @@
-// Thin client for the Onixus TMS API. The API key is entered by the operator
+// Thin client for the Onixus Logistics OS API. The API key is entered by the operator
 // and kept only in this browser tab's session storage — it is never baked
 // into the build, because anything in the bundle is public.
 

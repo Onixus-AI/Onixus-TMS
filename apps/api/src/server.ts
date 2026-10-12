@@ -6,4 +6,4 @@ import { createApp } from "./app.js";
 config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
 const port = Number(process.env.PORT ?? 4000);
-createApp(process.env).listen(port, () => console.log(`Onixus TMS API on :${port}`));
+createApp(process.env).listen(port, () => console.log(`Onixus Logistics OS API on :${port}`));
