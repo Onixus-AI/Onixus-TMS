@@ -1,7 +1,12 @@
 
 -- ONIXUS DRAYAGE OS - Unified Schema
-create extension if not exists "uuid-ossp";
-create extension if not exists postgis;
+-- Extensions go in their own schema (Supabase's convention), not in public,
+-- which the database API exposes: PostGIS in public would publish its
+-- spatial_ref_sys table without row-level security.
+create schema if not exists extensions;
+create extension if not exists "uuid-ossp" with schema extensions;
+create extension if not exists postgis with schema extensions;
+set search_path = public, extensions;
 
 -- ENUMS
 create type customer_type as enum ('SHIPPER','MANUFACTURER','BROKER','FREIGHT_FORWARDER','STEAMSHIP_LINE','DEPOT','WAREHOUSE','PORT_TERMINAL','CHASSIS_POOL');

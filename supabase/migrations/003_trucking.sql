@@ -4,6 +4,9 @@
 -- defaults to the container case. The rules that pair freight with trucks
 -- live in packages/core (equipment.ts) so the API and web app share them.
 
+-- PostGIS lives in the extensions schema (see 001).
+set search_path = public, extensions;
+
 create type equipment_type as enum ('CONTAINER','FLATBED','DRY_VAN','BOX_TRUCK','CARGO_VAN');
 create type truck_kind as enum ('TRACTOR','BOX_TRUCK','CARGO_VAN');
 create type trailer_kind as enum ('CHASSIS','FLATBED','DRY_VAN');
