@@ -1,7 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { crmProvider, emailProvider, llmProvider, providerStatus, type Env } from "@onixus/providers";
+import { crmProvider, emailProvider, fmcsa, llmProvider, providerStatus, storeFromEnv, StoreError, trackingProvider, type Env, type Store } from "@onixus/providers";
+import { HttpError, type Ctx } from "./http.js";
+import { loadRoutes } from "./routes/loads.js";
+import { fleetRoutes } from "./routes/fleet.js";
+import { containerRoutes, portWebhook } from "./routes/containers.js";
+import { accountRoutes } from "./routes/accounts.js";
 
 // One API for every integration. Each route resolves the provider chosen in
 // the environment at call time, so switching Gmail → Outlook or Claude →
@@ -17,30 +22,45 @@ function sameSecret(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export function createApp(env: Env) {
+/** Swap the database, clock or outside services in tests; production uses the environment. */
+export type Deps = Partial<Omit<Ctx, "env">>;
+
+export function createApp(env: Env, deps: Deps = {}) {
   const apiKey = env.TMS_API_KEY?.trim();
   if (!apiKey || apiKey.length < 24) throw new Error("TMS_API_KEY must be set to a random secret of at least 24 characters");
   const origins = (env.WEB_ORIGIN ?? "http://localhost:5173").split(",").map((o) => o.trim()).filter(Boolean);
 
+  let store: Store | undefined = deps.store?.();
+  const ctx: Ctx = {
+    env,
+    store: () => (store ??= storeFromEnv(env)),
+    now: deps.now ?? (() => new Date()),
+    checkCarrier: deps.checkCarrier ?? ((dot) => fmcsa(env).checkCarrier(dot)),
+    tracking: deps.tracking ?? (() => trackingProvider(env)),
+  };
+
   const app = express();
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "1mb" }));
+  // Keep the raw bytes: webhook signatures are computed over them, not over re-serialized JSON.
+  app.use(express.json({ limit: "1mb", verify: (req, _res, buf) => void ((req as Request & { rawBody?: Buffer }).rawBody = buf) }));
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin && origins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
     }
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
+  // Signed by the sender instead of the API key (see routes/containers.ts).
+  app.post("/webhooks/port", portWebhook(ctx));
 
-  // Everything below needs the API key: these routes send mail as the
-  // business, write to the CRM and spend LLM credit.
+  // Everything below needs the API key: these routes run dispatch, send mail
+  // as the business, write to the CRM and spend LLM credit.
   app.use((req, res, next) => {
     const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
     if (!token || !sameSecret(token, apiKey)) return res.status(401).json({ error: "Valid API key required" });
@@ -77,10 +97,22 @@ export function createApp(env: Env) {
     res.json({ provider: llm.name, ...(await llm.complete(request)) });
   });
 
+  app.use(loadRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx));
+
+  // Live truck positions from the GPS provider, matched to trucks by tracker id.
+  app.get("/tracking", async (_req, res) => {
+    const [positions, trucks] = await Promise.all([ctx.tracking().positions(), ctx.store().list("trucks", {}, { limit: 1000 })]);
+    const byDevice = new Map(trucks.filter((t) => t.tracking_device_id).map((t) => [t.tracking_device_id as string, t]));
+    res.json({ vehicles: positions.map((p) => ({ ...p, truck: byDevice.get(p.deviceId) ?? null })) });
+  });
+
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));
   // Express 5 routes rejected promises from async handlers here.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof z.ZodError) return res.status(400).json({ error: "Invalid request", issues: err.issues });
+    if (err instanceof HttpError || err instanceof StoreError) {
+      return res.status(err.status).json({ error: err.message, ...(err instanceof HttpError && err.problems ? { problems: err.problems } : {}) });
+    }
     const e = err as { status?: number; message?: string; missing?: string[] };
     const status = typeof e.status === "number" && e.status >= 400 && e.status < 600 ? e.status : 500;
     if (status >= 500 && status !== 501 && status !== 503) console.error(err);

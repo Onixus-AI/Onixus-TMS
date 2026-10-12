@@ -23,7 +23,8 @@ export function setKey(key: string) {
 export type ProviderStatus = { capability: string; provider: string; available: boolean; configured: boolean; missing: string[] };
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  /** The API's list of things to fix (dispatch checks, booking requirements, …). */
+  constructor(readonly status: number, message: string, readonly problems: string[] = []) {
     super(message);
   }
 }
@@ -35,7 +36,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     body: init.body ? JSON.stringify(init.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, Array.isArray(data.problems) ? data.problems : []);
   return data as T;
 }
 

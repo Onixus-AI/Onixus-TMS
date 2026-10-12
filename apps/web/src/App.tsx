@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, apiBase, ApiError, getKey, setKey, type ProviderStatus } from "./api";
+import { Containers, Customers, Dispatch, Fleet, Loads } from "./trucking";
 
-type Tab = "overview" | "email" | "crm" | "ai";
+type Tab = "loads" | "dispatch" | "containers" | "fleet" | "customers" | "overview" | "email" | "crm" | "ai";
 type Mail = { id: string; from: string; subject: string; snippet: string; receivedAt: string };
 type Company = { id: string; name: string; domain?: string; type?: string };
 
-const LABELS: Record<string, string> = { email: "Email", crm: "CRM", llm: "AI model", database: "Database" };
+const LABELS: Record<string, string> = { email: "Email", crm: "CRM", llm: "AI model", database: "Database", tracking: "GPS tracking" };
 
 function errorText(e: unknown): string {
   if (e instanceof ApiError && e.status === 401) return "The API key was rejected. Enter it again under Connections.";
@@ -157,8 +158,12 @@ function Ai() {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("overview");
-  const tabs: [Tab, string][] = [["overview", "Connections"], ["email", "Email"], ["crm", "CRM"], ["ai", "AI"]];
+  // Start on Connections until an API key is entered, then on the load board.
+  const [tab, setTab] = useState<Tab>(getKey() ? "loads" : "overview");
+  const tabs: [Tab, string][] = [
+    ["loads", "Loads"], ["dispatch", "Dispatch"], ["containers", "Containers"], ["fleet", "Fleet"], ["customers", "Customers"],
+    ["email", "Email"], ["crm", "CRM"], ["ai", "AI"], ["overview", "Connections"],
+  ];
   return (
     <div className="shell">
       <header>
@@ -172,6 +177,11 @@ export default function App() {
         </nav>
       </header>
       <main>
+        {tab === "loads" && <Loads />}
+        {tab === "dispatch" && <Dispatch />}
+        {tab === "containers" && <Containers />}
+        {tab === "fleet" && <Fleet />}
+        {tab === "customers" && <Customers />}
         {tab === "overview" && <Overview />}
         {tab === "email" && <Email />}
         {tab === "crm" && <Crm />}

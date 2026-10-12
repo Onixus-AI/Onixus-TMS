@@ -1,9 +1,9 @@
-// Provider contracts. Each capability (email, CRM, LLM, database) has one
+// Provider contracts. Each capability (email, CRM, LLM, database, GPS) has one
 // interface and several interchangeable implementations, chosen per
 // deployment by environment variables (see registry.ts).
 
 export type ProviderStatus = {
-  capability: "email" | "crm" | "llm" | "database";
+  capability: "email" | "crm" | "llm" | "database" | "tracking";
   provider: string;
   /** false when the provider is a planned one (Onyx) that has no implementation yet. */
   available: boolean;
@@ -61,7 +61,23 @@ export interface LlmProvider {
   complete(request: Completion): Promise<{ text: string; model: string }>;
 }
 
-/** Thrown for a provider that is planned but not built yet (Onyx Mail, Onyx CRM). */
+export type VehiclePosition = {
+  /** The tracker's unique id; matches trucks.tracking_device_id. */
+  deviceId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  speedMph: number;
+  heading: number;
+  at: string;
+};
+
+export interface TrackingProvider {
+  readonly name: string;
+  positions(): Promise<VehiclePosition[]>;
+}
+
+/** Thrown for a provider that is planned but not built yet (Onyx Mail, Onyx CRM, Samsara, Motive). */
 export class NotImplementedError extends Error {
   readonly status = 501;
   constructor(what: string) {

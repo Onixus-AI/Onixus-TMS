@@ -6,13 +6,14 @@ import { claude, CLAUDE_VARS } from "./llm/claude.js";
 import { openai, OPENAI_VARS } from "./llm/openai.js";
 import { onyxLlm, ONYX_LLM_VARS } from "./llm/onyx.js";
 import { SUPABASE_VARS } from "./db/supabase.js";
-import { NotImplementedError, type CrmProvider, type EmailProvider, type LlmProvider, type ProviderStatus } from "./types.js";
+import { traccar, TRACCAR_VARS } from "./tracking/traccar.js";
+import { NotImplementedError, type CrmProvider, type EmailProvider, type LlmProvider, type ProviderStatus, type TrackingProvider } from "./types.js";
 
 type Capability = ProviderStatus["capability"];
 type Entry<T> = { vars: readonly string[]; make?: (env: Env) => T; label: string };
 
 // Which providers each capability supports. An entry without `make` is
-// planned (Onyx Mail, Onyx CRM): selectable, reported as "coming soon",
+// planned (Onyx Mail, Onyx CRM, Samsara, Motive): selectable, reported as "coming soon",
 // and every call answers 501 instead of pretending to succeed.
 export const EMAIL_PROVIDERS: Record<string, Entry<EmailProvider>> = {
   gmail: { label: "Gmail", vars: GMAIL_VARS, make: gmail },
@@ -32,6 +33,12 @@ export const DATABASE_PROVIDERS: Record<string, Entry<never>> = {
   supabase: { label: "Supabase", vars: SUPABASE_VARS },
 };
 
+export const TRACKING_PROVIDERS: Record<string, Entry<TrackingProvider>> = {
+  traccar: { label: "Traccar GPS", vars: TRACCAR_VARS, make: traccar },
+  samsara: { label: "Samsara", vars: [] },
+  motive: { label: "Motive", vars: [] },
+};
+
 const ALIASES: Record<string, string> = { outlook: "microsoft", office365: "microsoft", m365: "microsoft", anthropic: "claude" };
 
 const TABLES: Record<Capability, { env: string; fallback: string; table: Record<string, Entry<unknown>> }> = {
@@ -39,6 +46,7 @@ const TABLES: Record<Capability, { env: string; fallback: string; table: Record<
   crm: { env: "CRM_PROVIDER", fallback: "hubspot", table: CRM_PROVIDERS },
   llm: { env: "LLM_PROVIDER", fallback: "claude", table: LLM_PROVIDERS },
   database: { env: "DATABASE_PROVIDER", fallback: "supabase", table: DATABASE_PROVIDERS },
+  tracking: { env: "TRACKING_PROVIDER", fallback: "traccar", table: TRACKING_PROVIDERS },
 };
 
 /** The provider key chosen for a capability, validated against what exists. */
@@ -69,3 +77,4 @@ function build<T>(capability: Capability, env: Env): T {
 export const emailProvider = (env: Env) => build<EmailProvider>("email", env);
 export const crmProvider = (env: Env) => build<CrmProvider>("crm", env);
 export const llmProvider = (env: Env) => build<LlmProvider>("llm", env);
+export const trackingProvider = (env: Env) => build<TrackingProvider>("tracking", env);

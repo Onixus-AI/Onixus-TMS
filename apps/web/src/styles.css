@@ -13,7 +13,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); }
-.shell { max-width: 1040px; margin: 0 auto; padding: 24px 16px; }
+.shell { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
 header { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 h1 { font-size: 20px; margin: 0; }
 h3 { margin: 6px 0 10px; font-size: 17px; }
@@ -21,7 +21,7 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
 button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
 button.active, form button { background: var(--accent); border-color: var(--accent); color: #fff; }
 button:disabled { opacity: 0.6; cursor: default; }
-input, textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: inherit; }
+input, textarea, select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: inherit; }
 textarea { margin-bottom: 10px; resize: vertical; }
 label { display: grid; gap: 6px; flex: 1; font-size: 13px; color: var(--muted); }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
@@ -36,3 +36,17 @@ label { display: grid; gap: 6px; flex: 1; font-size: 13px; color: var(--muted); 
 .badge.ok { color: var(--ok); border-color: var(--ok); }
 .badge.warn { color: var(--warn); border-color: var(--warn); }
 .badge.soon { color: var(--muted); }
+.badge.bad { color: var(--bad); border-color: var(--bad); }
+.stack { display: grid; gap: 12px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.actions button { padding: 5px 10px; font-size: 13px; }
+label.check { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+label.check input { width: auto; }
+.list.compact { gap: 4px; margin: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; display: block; overflow-x: auto; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+tbody tr { cursor: pointer; }
+tbody tr:hover, tr.selected { background: var(--panel); }
+a { color: var(--accent); }

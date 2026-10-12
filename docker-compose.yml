@@ -1,5 +1,6 @@
 # Local development stack. Infrastructure ports bind to 127.0.0.1 only, so
-# nothing but the API is reachable from other machines.
+# nothing but the API and the GPS port (phones report there) is reachable
+# from other machines.
 services:
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
@@ -15,10 +16,17 @@ services:
   redis:
     image: redis:7-alpine
     ports: ["127.0.0.1:6379:6379"]
+  # Open-source GPS server (Apache 2.0). Web UI on :8082; phones running the
+  # Traccar Client app report to :5055.
+  traccar:
+    image: traccar/traccar:6.16
+    ports: ["127.0.0.1:8082:8082", "5055:5055"]
+    volumes: ["traccar:/opt/traccar/data"]
   ollama:
     image: ollama/ollama
     ports: ["127.0.0.1:11434:11434"]
     volumes: ["ollama:/root/.ollama"]
 volumes:
   pgdata:
+  traccar:
   ollama:
