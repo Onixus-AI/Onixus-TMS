@@ -3,6 +3,7 @@ import { z } from "zod";
 import { CONTAINER_SIZES, EQUIPMENT_LABELS, EQUIPMENT_TYPES, BILLABLE, type EquipmentType } from "@onixus/core";
 import { defined, HttpError, isoDate, money, mustGet, text, today, uuid, type Ctx } from "../http.js";
 import { charges, moveLoad, type Load } from "./loads.js";
+import { extrasFor } from "./overview.js";
 
 export const CUSTOMER_TYPES = ["SHIPPER", "MANUFACTURER", "BROKER", "FREIGHT_FORWARDER", "STEAMSHIP_LINE", "DEPOT", "WAREHOUSE", "PORT_TERMINAL", "CHASSIS_POOL"] as const;
 
@@ -46,7 +47,8 @@ const tariff = z.object({
 });
 const quote = z.object({ customer_id: uuid.optional(), origin: text(), destination: text(), equipment_type: z.enum(EQUIPMENT_TYPES).default("CONTAINER"), container_size: z.enum(CONTAINER_SIZES).optional() });
 const line = z.object({ code: text(30), description: text(), amount: z.number().min(-1_000_000).max(1_000_000) });
-const invoiceRequest = z.object({ accessorials: z.array(line).max(50).default([]), include_container_charges: z.boolean().default(true) });
+/** Without `accessorials`, the invoice carries the extras the load has earned (chassis, waiting, …); send a list to replace them. */
+const invoiceRequest = z.object({ accessorials: z.array(line).max(50).optional(), include_container_charges: z.boolean().default(true) });
 
 type Customer = { id: string; org_id?: string | null; dot_number?: string | null; fmcsa_last_checked?: string | null };
 type Tariff = z.infer<typeof tariff> & { id: string };
@@ -155,7 +157,7 @@ export function accountRoutes(ctx: Ctx) {
     const existing = (await ctx.store().list<{ id: string; status: string }>("invoices", { load_id: load.id })).filter((i) => i.status !== "VOID");
     if (existing.length) throw new HttpError(409, "This load already has an invoice");
 
-    const lines = [{ code: "LINEHAUL", description: `${EQUIPMENT_LABELS[load.equipment_type]} ${load.load_number ?? ""}`.trim(), amount: load.rate }, ...body.accessorials];
+    const lines = [{ code: "LINEHAUL", description: `${EQUIPMENT_LABELS[load.equipment_type]} ${load.load_number ?? ""}`.trim(), amount: load.rate }, ...(body.accessorials ?? (await extrasFor(ctx, load)).map(({ code, description, amount }) => ({ code, description, amount })))];
     const c = charges(load, ctx.now());
     if (c && body.include_container_charges) {
       if (c.demurrage.amount > 0) lines.push({ code: "DEMURRAGE", description: `Demurrage, ${c.demurrage.days} day(s)`, amount: c.demurrage.amount });

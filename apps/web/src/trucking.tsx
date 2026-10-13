@@ -4,6 +4,7 @@ import {
   LOAD_STATUSES, LOAD_TRANSITIONS, TRAILER_KINDS, TRUCK_KINDS, type EquipmentType, type LoadStatus,
 } from "@onixus/core";
 import { api, ApiError, apiBase, uploadDocument } from "./api";
+import { useNav } from "./nav";
 import { DoImport, legLabel, legRoute, LegsPanel, MoveFields, PlacesSection, splitPlace, type Leg, type Place } from "./drayage";
 
 // Dispatcher screens: loads, dispatch, containers, fleet, customers. Every
@@ -95,10 +96,29 @@ export function Select({ name, options, empty, value, onChange, required }: { na
 }
 export const enumOptions = (values: readonly string[], labels?: Record<string, string>): [string, string][] => values.map((v) => [v, labels?.[v] ?? human(v)]);
 
+const STATUS_TONE: Partial<Record<LoadStatus, string>> = {
+  DRAFT: "s-muted", QUOTED: "s-muted", BOOKED: "s-amber", PLANNED: "s-amber", ASSIGNED: "s-blue", DISPATCHED: "s-blue",
+  AT_PICKUP: "s-mint", PICKED_UP: "s-mint", IN_TRANSIT: "s-mint", AT_DELIVERY: "s-mint", DELIVERED: "s-violet", POD_RECEIVED: "s-violet",
+  INVOICED: "s-muted", SETTLED: "s-muted", CLOSED: "s-muted", CANCELED: "s-muted", ON_HOLD: "s-red",
+};
+export function StatusChip({ status }: { status: LoadStatus }) {
+  return <span className={`chip ${STATUS_TONE[status] ?? ""}`}><i />{human(status)}</span>;
+}
+
+export function PageTitle({ title, sub, children }: { title: string; sub?: string; children?: ReactNode }) {
+  return (
+    <div className="page-title">
+      <div><h1>{title}</h1>{sub && <p className="muted">{sub}</p>}</div>
+      {children && <div className="actions">{children}</div>}
+    </div>
+  );
+}
+
 function RiskBadge({ risk }: { risk?: Risk | null }) {
   if (!risk || risk.level === "NONE") return null;
-  const cls = risk.level === "WATCH" ? "warn" : "bad";
-  return <span className={`badge ${cls}`} title={risk.reason}>{risk.level === "ACCRUING" ? usd(risk.demurrage + risk.perDiem) : human(risk.level)}</span>;
+  const cls = risk.level === "WATCH" ? "warning" : risk.level === "URGENT" ? "serious" : "critical";
+  const icon = risk.level === "WATCH" ? "◆" : risk.level === "URGENT" ? "▲" : "●";
+  return <span className={`status ${cls}`} title={risk.reason}><span aria-hidden="true">{icon}</span> {risk.level === "ACCRUING" ? usd(risk.demurrage + risk.perDiem) : human(risk.level)}</span>;
 }
 
 // ── Loads ───────────────────────────────────────────────────────────────────
@@ -120,8 +140,8 @@ function NewLoad({ onDone }: { onDone: () => void }) {
     action.run(() => api("/loads", { method: "POST", body: clean })).then((ok) => ok && form.reset());
   };
   return (
-    <form className="card stack" onSubmit={submit}>
-      <h3>New load</h3>
+    <form className="panel stack" onSubmit={submit}>
+      <h2>New load</h2>
       <div className="fields">
         <Field label="Equipment"><Select name="equipment_type" value={type} onChange={(v) => setType(v as EquipmentType)} options={enumOptions(EQUIPMENT_TYPES, EQUIPMENT_LABELS)} /></Field>
         <Field label="Customer"><Select name="customer_id" empty="—" options={shippers.map((c) => [c.id, c.company_name])} /></Field>
@@ -156,28 +176,46 @@ function NewLoad({ onDone }: { onDone: () => void }) {
       )}
       <label className="check"><input name="hazmat" type="checkbox" /> Hazmat</label>
       <Problem error={action.error} />
-      <button type="submit" disabled={action.busy}>Create load</button>
+      <button type="submit" className="primary" disabled={action.busy}>Create load</button>
     </form>
   );
 }
 
-function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
-  const { data, error, reload } = useGet<{ load: Load; legs: Leg[]; places: Record<string, Place>; events: Row[]; charges: { demurrage: { days: number; amount: number }; perDiem: { days: number; amount: number }; risk: Risk } | null }>(`/loads/${id}`);
+function LoadDetail({ id, onChange, onClose }: { id: string; onChange: () => void; onClose: () => void }) {
+  const { data, error, reload } = useGet<{ load: Load; legs: Leg[]; places: Record<string, Place>; events: Row[]; extras: { code: string; description: string; amount: number }[]; charges: { demurrage: { days: number; amount: number }; perDiem: { days: number; amount: number }; risk: Risk } | null }>(`/loads/${id}`);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
   const action = useAction(() => {
     reload();
     onChange();
   });
-  if (error) return <Problem error={error} />;
-  if (!data) return <p className="muted">Loading…</p>;
-  const { load, legs, places, events, charges } = data;
+  const frame = (body: ReactNode) => (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label="Load details">
+        <button className="close" aria-label="Close" onClick={onClose}>✕</button>
+        {body}
+      </aside>
+    </>
+  );
+  if (error) return frame(<Problem error={error} />);
+  if (!data) return frame(<p className="muted">Loading…</p>);
+  const { load, legs, places, events, charges, extras } = data;
   // Road statuses come from the legs, assignment from dispatch, and
   // invoicing from "create invoice", which bills the charges.
   const ROAD = ["ASSIGNED", "DISPATCHED", "AT_PICKUP", "PICKED_UP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED", "INVOICED"];
   const next = LOAD_TRANSITIONS[load.status].filter((s) => !ROAD.includes(s));
-  return (
-    <div className="card stack">
-      <h3>{ref(load)} · {EQUIPMENT_LABELS[load.equipment_type]} · {human(load.status)}</h3>
-      <div className="fields small">
+  return frame(
+    <div className="stack">
+      <div>
+        <p className="muted small">{EQUIPMENT_LABELS[load.equipment_type]}{load.direction ? ` · ${human(load.direction)}` : ""}</p>
+        <h2 className="drawer-title">{load.equipment_type === "CONTAINER" && load.container_number ? <span className="mono">{load.container_number}</span> : ref(load)} <StatusChip status={load.status} /></h2>
+        <p className="muted small">{ref(load)}</p>
+      </div>
+      <div className="facts small">
         {load.equipment_type === "CONTAINER" ? (
           <>
             <span>{load.direction ? human(load.direction) : "—"} · {load.container_number ?? "no container yet"} {load.container_size && `${load.container_size}'`}</span>
@@ -190,67 +228,85 @@ function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
         <span>Rate {usd(load.rate)}{load.hazmat && " · HAZMAT"}</span>
       </div>
       {charges && (
-        <p className="small">
-          Demurrage {usd(charges.demurrage.amount)} ({charges.demurrage.days} d) · Per diem {usd(charges.perDiem.amount)} ({charges.perDiem.days} d)
-          {charges.risk.reason && <> · <strong>{charges.risk.reason}</strong></>}
-        </p>
+        <div className="clocks">
+          <div><span className="muted small">Demurrage</span><strong>{usd(charges.demurrage.amount)}</strong><span className="muted small">{charges.demurrage.days} day(s)</span></div>
+          <div><span className="muted small">Per diem</span><strong>{usd(charges.perDiem.amount)}</strong><span className="muted small">{charges.perDiem.days} day(s)</span></div>
+          {charges.risk.reason && <div className="clock-note"><RiskBadge risk={charges.risk} /> <span className="small">{charges.risk.reason}</span></div>}
+        </div>
+      )}
+      {extras.length > 0 && (
+        <div className="stack tight">
+          <strong className="small">Extras earned so far</strong>
+          {extras.map((x) => <div key={x.code} className="line small"><span>{x.description}</span><strong>{usd(x.amount)}</strong></div>)}
+        </div>
       )}
       <div className="actions">
         {next.map((s) => (
-          <button key={s} disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/status`, { method: "POST", body: { status: s } }))}>{human(s)}</button>
+          <button key={s} className={s === "BOOKED" ? "primary" : ""} disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/status`, { method: "POST", body: { status: s } }))}>{human(s)}</button>
         ))}
 
         {BILLABLE.includes(load.status) && (
-          <button disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/invoice`, { method: "POST", body: {} }))}>create invoice</button>
+          <button className="primary" disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/invoice`, { method: "POST", body: {} }))}>create invoice</button>
         )}
       </div>
       <Problem error={action.error} />
       <LegsPanel legs={legs} places={places} onChange={() => { reload(); onChange(); }} />
       <Documents scope="" loadId={load.id} onChange={() => { reload(); onChange(); }} />
-      <ol className="small muted">
+      <strong className="small">History</strong>
+      <ol className="timeline small muted">
         {events.map((e) => <li key={e.id}>{e.created_at?.slice(0, 16).replace("T", " ")} · {e.from_status ? `${human(e.from_status)} → ` : ""}{human(e.to_status)}{e.note ? ` · ${e.note}` : ""}</li>)}
       </ol>
-    </div>
+    </div>,
   );
 }
 
 export function Loads() {
   const [equipment, setEquipment] = useState("");
   const [status, setStatus] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const { intent, clearIntent } = useNav();
+  const [open, setOpen] = useState<string | null>(intent.loadId ?? null);
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState(Boolean(intent.importOrder));
+  const [search, setSearch] = useState("");
+  useEffect(clearIntent, []);
   const q = new URLSearchParams({ ...(equipment && { equipment_type: equipment }), ...(status && { status }) }).toString();
   const { data, error, reload } = useGet<{ loads: Load[] }>(`/loads${q ? `?${q}` : ""}`);
   return (
-    <div className="stack">
-      <div className="row">
-        <Field label="Equipment"><Select name="eq" value={equipment} onChange={setEquipment} empty="All" options={enumOptions(EQUIPMENT_TYPES, EQUIPMENT_LABELS)} /></Field>
-        <Field label="Status"><Select name="st" value={status} onChange={setStatus} empty="All" options={enumOptions(LOAD_STATUSES)} /></Field>
-        <button onClick={() => { setImporting(!importing); setCreating(false); }}>{importing ? "Close" : "Import delivery order"}</button>
+    <div className="stack page">
+      <PageTitle title="Loads" sub="Every move, from booked to invoiced.">
+        <button className={importing ? "" : "primary"} onClick={() => { setImporting(!importing); setCreating(false); }}>{importing ? "Close import" : "Import delivery order"}</button>
         <button onClick={() => { setCreating(!creating); setImporting(false); }}>{creating ? "Close" : "New load"}</button>
-      </div>
+      </PageTitle>
       {importing && <DoImport onDone={reload} />}
       {creating && <NewLoad onDone={reload} />}
+      <div className="panel">
+      <div className="toolbar">
+        <input className="search" type="search" placeholder="Search load, container, booking or B/L" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search loads" />
+        <Select name="eq" value={equipment} onChange={setEquipment} empty="All equipment" options={enumOptions(EQUIPMENT_TYPES, EQUIPMENT_LABELS)} />
+        <Select name="st" value={status} onChange={setStatus} empty="All statuses" options={enumOptions(LOAD_STATUSES)} />
+      </div>
       <Problem error={error} />
+      <div className="table-wrap">
       <table>
-        <thead><tr><th>Load</th><th>Equipment</th><th>Status</th><th>Container / freight</th><th>LFD</th><th>Rate</th><th></th></tr></thead>
+        <thead><tr><th>Load</th><th>Equipment</th><th>Status</th><th>Container / freight</th><th>LFD</th><th className="num">Rate</th><th></th></tr></thead>
         <tbody>
-          {data?.loads.map((l) => (
+          {data?.loads.filter((l) => !search.trim() || [l.load_number, l.container_number, l.booking_number, l.bol_number, l.commodity].some((v) => String(v ?? "").toLowerCase().replace(/\s/g, "").includes(search.toLowerCase().replace(/\s/g, "")))).map((l) => (
             <tr key={l.id} onClick={() => setOpen(open === l.id ? null : l.id)} className={open === l.id ? "selected" : ""}>
-              <td>{ref(l)}</td>
-              <td>{EQUIPMENT_LABELS[l.equipment_type]}</td>
-              <td>{human(l.status)}</td>
-              <td>{l.equipment_type === "CONTAINER" ? `${l.container_number ?? "—"} ${l.container_size ? `${l.container_size}'` : ""}` : `${l.commodity ?? "—"}${l.weight_lbs ? ` · ${l.weight_lbs.toLocaleString()} lbs` : ""}`}</td>
+              <td><strong>{ref(l)}</strong></td>
+              <td className="muted">{EQUIPMENT_LABELS[l.equipment_type]}</td>
+              <td><StatusChip status={l.status} /></td>
+              <td>{l.equipment_type === "CONTAINER" ? <><span className="mono">{l.container_number ?? "—"}</span> <span className="muted">{l.container_size ? `${l.container_size}'` : ""}</span></> : `${l.commodity ?? "—"}${l.weight_lbs ? ` · ${l.weight_lbs.toLocaleString()} lbs` : ""}`}</td>
               <td>{l.last_free_day ?? ""}</td>
-              <td>{usd(l.rate)}</td>
+              <td className="num">{usd(l.rate)}</td>
               <td><RiskBadge risk={l.charges?.risk} /></td>
             </tr>
           ))}
         </tbody>
       </table>
-      {data && !data.loads.length && <p className="muted">No loads yet.</p>}
-      {open && <LoadDetail key={open} id={open} onChange={reload} />}
+      </div>
+      {data && !data.loads.length && <p className="muted empty">No loads yet. Import a delivery order to start.</p>}
+      </div>
+      {open && <LoadDetail key={open} id={open} onChange={reload} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -283,14 +339,15 @@ export function Dispatch() {
   const tripAction = (id: string, status: string) => action.run(() => api(`/trips/${id}/status`, { method: "POST", body: { status } }));
 
   return (
-    <div className="stack">
-      <form className="card stack" onSubmit={submit}>
-        <h3>Build a trip</h3>
-        <p className="muted small">Pick legs to drive. A live unload is usually both legs on one trip; for a drop, send the loaded leg now and the empty later. Two containers make a dual transaction. The API refuses a trip it can't run and says why.</p>
-        <div className="stack">
+    <div className="stack page">
+      <PageTitle title="Dispatch" sub="Pick the legs, then the driver and truck. Onixus refuses a trip it can't run and says why." />
+      <form className="dispatch" onSubmit={submit}>
+        <div className="panel stack">
+          <div className="panel-head"><h2>Legs waiting for a truck</h2><span className="muted small">{board.data?.legs.length ?? 0}</span></div>
+          <p className="muted small">A live unload is usually both legs on one trip; for a drop, send the loaded leg now and the empty later. Two containers make a dual transaction.</p>
           {groups.map(({ load, legs }) => (
-            <div key={legs[0].load_id} className="small">
-              <strong>{ref(load)}</strong> · {load ? EQUIPMENT_LABELS[load.equipment_type] : ""} · {load?.container_number ?? load?.commodity ?? ""} <RiskBadge risk={load?.charges?.risk} />
+            <div key={legs[0].load_id} className={`leg-group ${legs.some((l) => picked.includes(l.id)) ? "picked" : ""}`}>
+              <div className="leg-head"><strong className="mono">{load?.container_number ?? ref(load)}</strong> <span className="muted small">{ref(load)} · {load ? EQUIPMENT_LABELS[load.equipment_type] : ""}{load?.commodity ? ` · ${load.commodity}` : ""}</span> <RiskBadge risk={load?.charges?.risk} /></div>
               {legs.map((l) => (
                 <label key={l.id} className="check leg">
                   <input type="checkbox" checked={picked.includes(l.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, ...legs.filter((x) => x.seq <= l.seq && !picked.includes(x.id)).map((x) => x.id)] : picked.filter((x) => !legs.some((y) => y.id === x && y.seq >= l.seq)))} />
@@ -299,9 +356,12 @@ export function Dispatch() {
               ))}
             </div>
           ))}
-          {board.data && !groups.length && <p className="muted">No legs waiting for a truck. Book a load, or import a delivery order.</p>}
+          {board.data && !groups.length && <p className="muted empty">No legs waiting for a truck. Book a load, or import a delivery order.</p>}
         </div>
-        <div className="fields">
+        <div className="panel stack builder-side">
+        <h2>Trip</h2>
+        <p className="small">{picked.length ? `${picked.length} leg${picked.length === 1 ? "" : "s"} picked` : <span className="muted">Pick legs on the left.</span>}</p>
+        <div className="stack tight">
           <Field label="Driver"><Select name="driver_id" required empty="Choose…" options={(drivers.data?.drivers ?? []).map((d) => [d.id, `${d.name}${d.cdl_class ? ` (CDL ${d.cdl_class})` : ""}`])} /></Field>
           <Field label="Truck"><Select name="truck_id" required empty="Choose…" options={fitTrucks.map((t) => [t.id, `${t.truck_number} · ${human(t.kind)}`])} /></Field>
           {rule?.trailer && (
@@ -311,21 +371,24 @@ export function Dispatch() {
           )}
         </div>
         <Problem error={action.error} />
-        <button type="submit" disabled={action.busy || !picked.length}>Assign</button>
+        <button type="submit" className="primary" disabled={action.busy || !picked.length}>Assign</button>
+        </div>
       </form>
 
-      <h3>Trips</h3>
+      <section className="panel stack">
+      <h2>Trips</h2>
+      <div className="table-wrap">
       <table>
         <thead><tr><th>Created</th><th>Status</th><th>Loads</th><th>Legs</th><th></th></tr></thead>
         <tbody>
           {trips.data?.trips.map((t) => (
-            <tr key={t.id}>
+            <tr key={t.id} className="static">
               <td>{t.created_at?.slice(0, 16).replace("T", " ")}</td>
-              <td>{human(t.status)}{t.is_dual_transaction && " · dual"}</td>
+              <td><span className="chip">{human(t.status)}</span>{t.is_dual_transaction && " · dual"}</td>
               <td>{t.load_ids?.length ?? 0}</td>
               <td>{t.leg_ids?.length ?? 0}</td>
               <td className="actions">
-                {t.status === "ASSIGNED" && <button onClick={() => tripAction(t.id, "DISPATCHED")}>dispatch</button>}
+                {t.status === "ASSIGNED" && <button className="primary" onClick={() => tripAction(t.id, "DISPATCHED")}>dispatch</button>}
                 {t.status === "DISPATCHED" && <button onClick={() => tripAction(t.id, "COMPLETED")}>complete</button>}
                 {["ASSIGNED", "DISPATCHED"].includes(t.status) && <button onClick={() => tripAction(t.id, "CANCELED")}>cancel</button>}
               </td>
@@ -333,6 +396,9 @@ export function Dispatch() {
           ))}
         </tbody>
       </table>
+      </div>
+      {trips.data && !trips.data.trips.length && <p className="muted">No trips yet.</p>}
+      </section>
     </div>
   );
 }
@@ -346,31 +412,35 @@ export function Containers() {
   const action = useAction(() => [alerts, turns, proposed].forEach((x) => x.reload()));
   const pending = (proposed.data?.loads ?? []).filter((l) => l.street_turn_status === "PROPOSED" && l.direction === "IMPORT");
   return (
-    <div className="stack">
-      <h3>Container clocks</h3>
+    <div className="stack page">
+      <PageTitle title="Containers" sub="Last free days, per diem, cutoffs and street turns." />
+      <section className="panel stack">
+      <h2>Container clocks</h2>
       <Problem error={alerts.error} />
       <ul className="list">
         {alerts.data?.alerts.map(({ load, risk }) => (
-          <li key={load.id} className="card">
+          <li key={load.id} className="item">
             <RiskBadge risk={risk} /> <strong>{load.container_number ?? ref(load)}</strong> · {risk.reason}
             <div className="muted small">{ref(load)} · {human(load.status)} · LFD {load.last_free_day ?? "—"}</div>
           </li>
         ))}
         {alerts.data && !alerts.data.alerts.length && <li className="muted">No container is near its last free day, per diem or cutoff.</li>}
       </ul>
+      </section>
 
-      <h3>Street turns</h3>
+      <section className="panel stack">
+      <h2>Street turns</h2>
       <p className="muted small">An emptied import reused for a nearby export on the same line: two fewer port trips and no more per diem. The steamship line must approve each one.</p>
       <Problem error={turns.error ?? action.error} />
       <ul className="list">
         {turns.data?.matches.map((m) => (
-          <li key={m.importLoadId} className="card row">
+          <li key={m.importLoadId} className="item row">
             <span>{m.containerNumber}: {ref(m.import)} → {ref(m.export)} · {m.miles} mi</span>
-            <button onClick={() => action.run(() => api("/street-turns", { method: "POST", body: { import_load_id: m.importLoadId, export_load_id: m.exportLoadId } }))}>Propose</button>
+            <button className="primary" onClick={() => action.run(() => api("/street-turns", { method: "POST", body: { import_load_id: m.importLoadId, export_load_id: m.exportLoadId } }))}>Propose</button>
           </li>
         ))}
         {pending.map((l) => (
-          <li key={l.id} className="card row">
+          <li key={l.id} className="item row">
             <span>{l.container_number}: {ref(l)} waiting for the line</span>
             <button onClick={() => action.run(() => api(`/street-turns/${l.id}/approve`, { method: "POST" }))}>Approved</button>
             <button onClick={() => action.run(() => api(`/street-turns/${l.id}/reject`, { method: "POST" }))}>Rejected</button>
@@ -378,6 +448,7 @@ export function Containers() {
         ))}
         {turns.data && !turns.data.matches.length && !pending.length && <li className="muted">No street-turn matches right now.</li>}
       </ul>
+      </section>
     </div>
   );
 }
@@ -393,14 +464,16 @@ function AssetSection({ title, path, columns, fields, numbers = [] }: { title: s
     action.run(() => api(`/${path}`, { method: "POST", body: formBody(form, numbers) })).then((ok) => ok && form.reset());
   };
   return (
-    <section className="stack">
-      <h3>{title}</h3>
+    <section className="panel stack">
+      <h2>{title}</h2>
       <Problem error={error} />
+      <div className="table-wrap">
       <table>
         <thead><tr>{columns.map(([h]) => <th key={h}>{h}</th>)}</tr></thead>
-        <tbody>{data?.[path]?.map((r) => <tr key={r.id}>{columns.map(([h, f]) => <td key={h}>{f(r)}</td>)}</tr>)}</tbody>
+        <tbody>{data?.[path]?.map((r) => <tr key={r.id} className="static">{columns.map(([h, f]) => <td key={h}>{f(r)}</td>)}</tr>)}</tbody>
       </table>
-      <form className="card stack" onSubmit={submit}>
+      </div>
+      <form className="subform stack" onSubmit={submit}>
         <div className="fields">{fields}</div>
         <Problem error={action.error} />
         <button type="submit" disabled={action.busy}>Add</button>
@@ -414,7 +487,8 @@ const expiry = (d?: string | null) => d ?? "—";
 export function Fleet() {
   const gps = useGet<{ vehicles: { deviceId: string; name: string; lat: number; lng: number; speedMph: number; at: string; truck: Row | null }[] }>("/tracking");
   return (
-    <div className="stack">
+    <div className="stack page">
+      <PageTitle title="Fleet" sub="Drivers, trucks, chassis, your places and live GPS." />
       <AssetSection
         title="Drivers"
         path="drivers"
@@ -458,19 +532,21 @@ export function Fleet() {
         </>}
       />
       <PlacesSection />
-      <h3>Live GPS</h3>
+      <section className="panel stack">
+      <h2>Live GPS</h2>
       {gps.error ? (
         <p className="muted small">GPS is not connected: {errorText(gps.error)}</p>
       ) : (
         <ul className="list">
           {gps.data?.vehicles.map((v) => (
-            <li key={v.deviceId} className="card small">
+            <li key={v.deviceId} className="item small">
               <strong>{v.truck?.truck_number ?? v.name}</strong> · {v.speedMph} mph · <a href={`https://www.openstreetmap.org/?mlat=${v.lat}&mlon=${v.lng}#map=13/${v.lat}/${v.lng}`} target="_blank" rel="noreferrer">{v.lat.toFixed(4)}, {v.lng.toFixed(4)}</a> · {new Date(v.at).toLocaleString()}
               {!v.truck && <span className="muted"> · no truck has GPS id {v.deviceId}</span>}
             </li>
           ))}
         </ul>
       )}
+      </section>
     </div>
   );
 }
@@ -493,7 +569,7 @@ function CustomerCard({ c, onChange }: { c: Row; onChange: () => void }) {
   };
   const badge = c.compliance_status === "VERIFIED" ? "ok" : c.compliance_status === "BLOCKED" ? "bad" : "warn";
   return (
-    <li className="card stack">
+    <li className="panel stack">
       <div>
         <strong>{c.company_name}</strong> <span className="badge">{human(c.type)}</span>{" "}
         {c.dot_number && <span className={`badge ${badge}`}>FMCSA {human(c.compliance_status ?? "pending")}</span>}
@@ -528,9 +604,10 @@ export function Customers() {
     action.run(() => api("/customers", { method: "POST", body: formBody(form) })).then((ok) => ok && form.reset());
   };
   return (
-    <div className="stack">
-      <form className="card stack" onSubmit={submit}>
-        <h3>New customer</h3>
+    <div className="stack page">
+      <PageTitle title="Customers" sub="Shippers, forwarders, steamship lines and their sites." />
+      <form className="panel stack" onSubmit={submit}>
+        <h2>New customer</h2>
         <div className="fields">
           <Field label="Company"><input name="company_name" required /></Field>
           <Field label="Type"><Select name="type" options={enumOptions(CUSTOMER_TYPES)} /></Field>
@@ -540,10 +617,10 @@ export function Customers() {
           <Field label="Terms"><input name="payment_terms" placeholder="Net 30" /></Field>
         </div>
         <Problem error={action.error} />
-        <button type="submit" disabled={action.busy}>Add customer</button>
+        <button type="submit" className="primary" disabled={action.busy}>Add customer</button>
       </form>
       <Problem error={error} />
-      <ul className="list">{data?.customers.map((c) => <CustomerCard key={c.id} c={c} onChange={reload} />)}</ul>
+      <ul className="list cards">{data?.customers.map((c) => <CustomerCard key={c.id} c={c} onChange={reload} />)}</ul>
     </div>
   );
 }

@@ -284,3 +284,48 @@ test("an approved street turn drops the import's trip back to port and sends the
     assert.equal((await call("GET", `/loads/${exp.id}`)).body.load.container_number, "CSQU3054383");
   });
 });
+
+test("dashboard numbers, the rate card, and invoices that carry the extras a move earned", async () => {
+  await withApi(async (call) => {
+    const s = await setup(call);
+    // A live unload, overweight, driven today.
+    const load = (await call("POST", "/loads", containerLoad(s, { direction: "IMPORT", container_number: "CSQU3054383", delivery_location_id: s.consignee.id, weight_lbs: 46_000 }))).body.load;
+    await call("POST", `/loads/${load.id}/status`, { status: "BOOKED" });
+    // A box sitting at the terminal two days past its last free day.
+    const late = (await call("POST", "/loads", containerLoad(s, { direction: "IMPORT", container_number: "TGHU0026975", delivery_location_id: s.consignee.id, last_free_day: "2026-10-10" }))).body.load;
+    await call("POST", `/loads/${late.id}/status`, { status: "BOOKED" });
+
+    let o = (await call("GET", "/overview?days=7")).body;
+    assert.equal(o.kpis.containers, 2);
+    assert.deepEqual(o.kpis.at_risk, { amount: 550, containers: 1 });
+    assert.equal(o.needs_truck.legs, 4);
+    assert.equal(o.needs_truck.urgent, 2, "both legs of the late box are urgent");
+    assert.equal(o.where.terminal, 2);
+    assert.equal(o.attention[0].container_number, "TGHU0026975");
+    assert.equal(o.attention[0].customer, "Blue Ocean Forwarding");
+    assert.equal(o.series.length, 7);
+
+    const legs = (await call("GET", `/loads/${load.id}`)).body.legs;
+    const trip = (await call("POST", "/dispatch", { leg_ids: legs.map((l: any) => l.id), driver_id: s.driver.id, truck_id: s.tractor.id })).body.trip;
+    await call("POST", `/trips/${trip.id}/status`, { status: "DISPATCHED" });
+    for (const l of legs) await runLeg(call, l.id);
+
+    o = (await call("GET", "/overview")).body;
+    assert.equal(o.kpis.moves_today, 2);
+    assert.deepEqual(o.series.at(-1), { date: "2026-10-12", loaded: 1, empty: 1 });
+    assert.equal(o.kpis.ready_to_invoice.count, 1);
+    assert.equal(o.kpis.containers, 1, "a returned empty is out of play");
+
+    // Owners price the extras; the load shows what it has earned.
+    assert.equal((await call("PUT", "/rate-card", { chassis_per_day: "x" })).status, 400);
+    assert.equal((await call("PUT", "/rate-card", { chassis_per_day: 55 })).body.rate_card.chassis_per_day, 55);
+    const extras = (await call("GET", `/loads/${load.id}`)).body.extras;
+    assert.deepEqual(extras.map((e: any) => [e.code, e.amount]), [["CHASSIS", 55], ["OVERWEIGHT", 150]]);
+
+    // The invoice carries them unless the dispatcher sends their own list.
+    const inv = await call("POST", `/loads/${load.id}/invoice`, {});
+    assert.equal(inv.status, 201, JSON.stringify(inv.body));
+    assert.deepEqual(inv.body.invoice.accessorials.map((l: any) => l.code), ["LINEHAUL", "CHASSIS", "OVERWEIGHT"]);
+    assert.equal(inv.body.invoice.amount, 650 + 55 + 150);
+  });
+});
