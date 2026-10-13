@@ -73,6 +73,31 @@ export function supabaseStore(client: SupabaseClient): Store {
 
 export const storeFromEnv = (env: Env): Store => supabaseStore(supabase(env));
 
+/** Shared reference data every organization reads; everything else belongs to one organization. */
+export const GLOBAL_TABLES: ReadonlySet<string> = new Set(["container_status", "port_terminals"]);
+
+/**
+ * The same store, limited to one organization: every read filters on
+ * org_id, every insert stamps it, a row of another organization reads as
+ * missing, and org_id itself can never be changed.
+ */
+export function scopedStore(base: Store, orgId: string): Store {
+  const global = (table: string) => GLOBAL_TABLES.has(table);
+  const withoutOrg = (row: Record<string, unknown>) => {
+    const { org_id: _ignored, ...rest } = row;
+    return rest;
+  };
+  return {
+    list: (table, where = {}, opts) => base.list(table, global(table) ? where : { ...where, org_id: orgId }, opts),
+    async get<T extends Row>(table: string, id: string) {
+      const row = await base.get<T>(table, id);
+      return row && (global(table) || row.org_id === orgId) ? row : null;
+    },
+    insert: (table, row) => base.insert(table, global(table) ? row : { ...withoutOrg(row), org_id: orgId }),
+    update: (table, id, patch, expect) => base.update(table, id, withoutOrg(patch), global(table) ? expect : { ...expect, org_id: orgId }),
+  };
+}
+
 const matches = (row: Record<string, unknown>, where: Where = {}) =>
   Object.entries(where).every(([col, v]) => (Array.isArray(v) ? v.includes(row[col] as Scalar) : v === null ? row[col] == null : row[col] === v));
 

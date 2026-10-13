@@ -1,12 +1,13 @@
-import { timingSafeEqual } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { crmProvider, emailProvider, fmcsa, llmProvider, providerStatus, storeFromEnv, StoreError, trackingProvider, type Env, type Store } from "@onixus/providers";
+import { crmProvider, emailProvider, fmcsa, llmProvider, providerStatus, storeFromEnv, StoreError, supabaseFiles, supabaseInvite, supabaseUser, trackingProvider, type Env, type Store } from "@onixus/providers";
 import { HttpError, type Ctx } from "./http.js";
+import { authenticate, currentCaller, drivers, identityRoutes, platformOnly, roles, scopedFor } from "./auth.js";
+import { driverRoutes } from "./routes/driver.js";
 import { loadRoutes } from "./routes/loads.js";
 import { fleetRoutes } from "./routes/fleet.js";
 import { containerRoutes, portWebhook } from "./routes/containers.js";
-import { accountRoutes } from "./routes/accounts.js";
+import { accountRoutes, platformAccountRoutes } from "./routes/accounts.js";
 
 // One API for every integration. Each route resolves the provider chosen in
 // the environment at call time, so switching Gmail → Outlook or Claude →
@@ -17,26 +18,28 @@ const newCompany = z.object({ name: z.string().min(1).max(300), domain: z.string
 const newContact = z.object({ email: z.string().email(), firstName: z.string().max(100).optional(), lastName: z.string().max(100).optional(), phone: z.string().max(40).optional(), companyId: z.string().max(40).optional() });
 const completion = z.object({ prompt: z.string().min(1).max(200_000), system: z.string().max(50_000).optional(), maxTokens: z.number().int().min(1).max(64_000).optional() });
 
-function sameSecret(a: string, b: string): boolean {
-  const x = Buffer.from(a), y = Buffer.from(b);
-  return x.length === y.length && timingSafeEqual(x, y);
-}
-
 /** Swap the database, clock or outside services in tests; production uses the environment. */
-export type Deps = Partial<Omit<Ctx, "env">>;
+export type Deps = Partial<Omit<Ctx, "env" | "db" | "store" | "caller">> & { store?: () => Store };
 
 export function createApp(env: Env, deps: Deps = {}) {
   const apiKey = env.TMS_API_KEY?.trim();
   if (!apiKey || apiKey.length < 24) throw new Error("TMS_API_KEY must be set to a random secret of at least 24 characters");
   const origins = (env.WEB_ORIGIN ?? "http://localhost:5173").split(",").map((o) => o.trim()).filter(Boolean);
 
-  let store: Store | undefined = deps.store?.();
+  let base: Store | undefined = deps.store?.();
+  const db = () => (base ??= storeFromEnv(env));
   const ctx: Ctx = {
     env,
-    store: () => (store ??= storeFromEnv(env)),
+    db,
+    store: scopedFor(db),
+    caller: currentCaller,
     now: deps.now ?? (() => new Date()),
     checkCarrier: deps.checkCarrier ?? ((dot) => fmcsa(env).checkCarrier(dot)),
     tracking: deps.tracking ?? (() => trackingProvider(env)),
+    // Without Supabase configured no token can belong to a person.
+    verifyUser: deps.verifyUser ?? (async (token) => (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY ? supabaseUser(env, token) : null)),
+    inviteUser: deps.inviteUser ?? ((email, redirectTo) => supabaseInvite(env, email, redirectTo)),
+    files: deps.files ?? (() => supabaseFiles(env)),
   };
 
   const app = express();
@@ -48,7 +51,7 @@ export function createApp(env: Env, deps: Deps = {}) {
     if (origin && origins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
-      res.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
+      res.setHeader("Access-Control-Allow-Headers", "authorization, content-type, x-org-id");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
     }
     if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -59,15 +62,20 @@ export function createApp(env: Env, deps: Deps = {}) {
   // Signed by the sender instead of the API key (see routes/containers.ts).
   app.post("/webhooks/port", portWebhook(ctx));
 
-  // Everything below needs the API key: these routes run dispatch, send mail
-  // as the business, write to the CRM and spend LLM credit.
-  app.use((req, res, next) => {
-    const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-    if (!token || !sameSecret(token, apiKey)) return res.status(401).json({ error: "Valid API key required" });
-    next();
-  });
+  // Everything below needs a signed-in person or the platform API key (see auth.ts).
+  app.use(authenticate(ctx, apiKey));
 
-  app.get("/providers", (_req, res) => res.json({ providers: providerStatus(env) }));
+  // Anyone signed in: who am I, start a company; owners manage the team.
+  app.use(identityRoutes(ctx));
+
+  // The driver app: only the caller's own trips.
+  app.use("/driver", drivers, driverRoutes(ctx));
+
+  // Platform only: Onixus's own mailbox, CRM and AI credit, and cross-company jobs.
+  app.get("/providers", platformOnly, (_req, res) => res.json({ providers: providerStatus(env) }));
+  app.use(["/email", "/crm", "/llm"], platformOnly);
+  app.use(["/terminals", "/fmcsa/recheck"], (req, res, next) => (req.method === "POST" ? platformOnly(req, res, next) : next()));
+  app.use(platformAccountRoutes(ctx));
 
   app.post("/email/send", async (req, res) => {
     const message = sendEmail.parse(req.body);
@@ -97,13 +105,16 @@ export function createApp(env: Env, deps: Deps = {}) {
     res.json({ provider: llm.name, ...(await llm.complete(request)) });
   });
 
+  // The office: owners and dispatchers (or the platform acting inside a company).
+  app.use(roles("OWNER", "DISPATCHER"));
   app.use(loadRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx));
 
-  // Live truck positions from the GPS provider, matched to trucks by tracker id.
+  // Live positions of this company's trucks. The GPS server is shared, so
+  // trackers no truck of this company claims are never shown.
   app.get("/tracking", async (_req, res) => {
     const [positions, trucks] = await Promise.all([ctx.tracking().positions(), ctx.store().list("trucks", {}, { limit: 1000 })]);
     const byDevice = new Map(trucks.filter((t) => t.tracking_device_id).map((t) => [t.tracking_device_id as string, t]));
-    res.json({ vehicles: positions.map((p) => ({ ...p, truck: byDevice.get(p.deviceId) ?? null })) });
+    res.json({ vehicles: positions.filter((p) => byDevice.has(p.deviceId)).map((p) => ({ ...p, truck: byDevice.get(p.deviceId) })) });
   });
 
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));

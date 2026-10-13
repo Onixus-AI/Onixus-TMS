@@ -65,7 +65,7 @@ const tripEvent = z.object({
   note: text(1000).optional(),
 });
 
-type Trip = { id: string; status: (typeof TRIP_STATUSES)[number]; load_ids: string[]; driver_id: string; truck_id: string; trailer_id?: string | null };
+export type Trip = { id: string; status: (typeof TRIP_STATUSES)[number]; load_ids: string[]; driver_id: string; truck_id: string; trailer_id?: string | null };
 
 export function fleetRoutes(ctx: Ctx) {
   const r = Router();
@@ -146,42 +146,56 @@ export function fleetRoutes(ctx: Ctx) {
   r.post("/trips/:id/status", async (req, res) => {
     const { status: to } = z.object({ status: z.enum(["DISPATCHED", "COMPLETED", "CANCELED"]) }).parse(req.body);
     const trip = await mustGet<Trip>(ctx, "trips", req.params.id, "Trip");
-    const store = ctx.store();
-    const loads = trip.load_ids?.length ? await store.list<Load>("loads", { id: trip.load_ids }) : [];
-    const now = ctx.now().toISOString();
-    const allowed: Record<string, string[]> = { DISPATCHED: ["ASSIGNED"], COMPLETED: ["DISPATCHED"], CANCELED: ["ASSIGNED", "DISPATCHED"] };
-    if (!allowed[to].includes(trip.status)) throw new HttpError(409, `A trip cannot go from ${trip.status} to ${to}`);
-
-    if (to === "DISPATCHED") {
-      for (const l of loads) if (l.status === "ASSIGNED") await moveLoad(ctx, l, "DISPATCHED", `Trip ${trip.id} dispatched`);
-    } else if (to === "COMPLETED") {
-      const open = loads.filter((l) => !FINISHED.includes(l.status));
-      if (open.length) throw new HttpError(409, "Deliver every load before completing the trip", open.map((l) => `${l.load_number ?? l.id} is ${l.status}`));
-    } else {
-      const rolling = loads.filter((l) => !["ASSIGNED", "DISPATCHED"].includes(l.status) && !FINISHED.includes(l.status));
-      if (rolling.length) throw new HttpError(409, "A load on this trip is already moving; put it on hold instead", rolling.map((l) => `${l.load_number ?? l.id} is ${l.status}`));
-      for (const l of loads) if (["ASSIGNED", "DISPATCHED"].includes(l.status)) await moveLoad(ctx, l, "BOOKED", `Trip ${trip.id} canceled`, { system: true });
-    }
-    const updated = await store.update("trips", trip.id, { status: to, ...(to === "DISPATCHED" ? { dispatched_at: now } : { completed_at: now }) }, { status: trip.status });
-    if (!updated) throw new HttpError(409, "Trip changed while you were working; reload and try again");
-    if (to !== "DISPATCHED") {
-      await Promise.all([
-        store.update("drivers", trip.driver_id, { status: "AVAILABLE" }),
-        store.update("trucks", trip.truck_id, { status: "AVAILABLE" }),
-        trip.trailer_id ? store.update("equipment", trip.trailer_id, { status: "AVAILABLE" }) : null,
-      ]);
-    }
-    res.json({ trip: updated });
+    res.json({ trip: await changeTripStatus(ctx, trip, to) });
   });
 
   // Driver check calls and stop events.
   r.post("/trips/:id/events", async (req, res) => {
-    const e = tripEvent.parse(req.body);
     const trip = await mustGet<Trip>(ctx, "trips", req.params.id, "Trip");
-    const row = await ctx.store().insert("trip_events", { trip_id: trip.id, event_type: e.event_type, lat: e.lat ?? null, lng: e.lng ?? null, metadata: e.note ? { note: e.note } : null });
-    res.status(201).json({ event: row });
+    res.status(201).json({ event: await addTripEvent(ctx, trip, req.body) });
   });
 
   return r;
 }
 
+
+/**
+ * Dispatch, complete or cancel a trip, with its loads and equipment.
+ * Dispatching moves assigned loads to DISPATCHED; completing needs every
+ * load delivered; canceling puts unstarted loads back to BOOKED. Completing
+ * or canceling frees the driver, truck and trailer.
+ */
+export async function changeTripStatus(ctx: Ctx, trip: Trip, to: "DISPATCHED" | "COMPLETED" | "CANCELED") {
+  const store = ctx.store();
+  const loads = trip.load_ids?.length ? await store.list<Load>("loads", { id: trip.load_ids }) : [];
+  const now = ctx.now().toISOString();
+  const allowed: Record<string, string[]> = { DISPATCHED: ["ASSIGNED"], COMPLETED: ["DISPATCHED"], CANCELED: ["ASSIGNED", "DISPATCHED"] };
+  if (!allowed[to].includes(trip.status)) throw new HttpError(409, `A trip cannot go from ${trip.status} to ${to}`);
+
+  if (to === "DISPATCHED") {
+    for (const l of loads) if (l.status === "ASSIGNED") await moveLoad(ctx, l, "DISPATCHED", `Trip ${trip.id} dispatched`);
+  } else if (to === "COMPLETED") {
+    const open = loads.filter((l) => !FINISHED.includes(l.status));
+    if (open.length) throw new HttpError(409, "Deliver every load before completing the trip", open.map((l) => `${l.load_number ?? l.id} is ${l.status}`));
+  } else {
+    const rolling = loads.filter((l) => !["ASSIGNED", "DISPATCHED"].includes(l.status) && !FINISHED.includes(l.status));
+    if (rolling.length) throw new HttpError(409, "A load on this trip is already moving; put it on hold instead", rolling.map((l) => `${l.load_number ?? l.id} is ${l.status}`));
+    for (const l of loads) if (["ASSIGNED", "DISPATCHED"].includes(l.status)) await moveLoad(ctx, l, "BOOKED", `Trip ${trip.id} canceled`, { system: true });
+  }
+  const updated = await store.update<Trip & { id: string }>("trips", trip.id, { status: to, ...(to === "DISPATCHED" ? { dispatched_at: now } : { completed_at: now }) }, { status: trip.status });
+  if (!updated) throw new HttpError(409, "Trip changed while you were working; reload and try again");
+  if (to !== "DISPATCHED") {
+    await Promise.all([
+      store.update("drivers", trip.driver_id, { status: "AVAILABLE" }),
+      store.update("trucks", trip.truck_id, { status: "AVAILABLE" }),
+      trip.trailer_id ? store.update("equipment", trip.trailer_id, { status: "AVAILABLE" }) : null,
+    ]);
+  }
+  return updated;
+}
+
+/** A check call, arrival, delay or note on a trip, optionally with the phone's position. */
+export async function addTripEvent(ctx: Ctx, trip: Trip, body: unknown) {
+  const e = tripEvent.parse(body);
+  return ctx.store().insert("trip_events", { trip_id: trip.id, event_type: e.event_type, lat: e.lat ?? null, lng: e.lng ?? null, metadata: e.note ? { note: e.note } : null, created_at: ctx.now().toISOString() });
+}

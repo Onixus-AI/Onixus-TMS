@@ -5,6 +5,26 @@ and cargo van loads run through the same loads, dispatch and billing flow.
 One authenticated API over swappable providers, the database schema, and the
 dispatcher web app.
 
+## Who uses it
+
+Every business is an organization, from an owner-operator with one cargo van
+to a drayage fleet. People sign in (Supabase Auth) and get one role:
+
+| Role | Sees |
+|---|---|
+| Owner | Everything, plus Team (invite and remove people) |
+| Dispatcher | Loads, dispatch, containers, fleet, customers |
+| Driver | The driver app: their own trips only |
+
+An owner-operator is an organization of one: an owner linked to a driver
+record, with both the office and "My trips". Each organization sees only
+its own data; the API scopes every query to the caller's organization.
+
+**Driver app** (phone-sized): start the trip, tap each stop (arrived,
+picked up, arrived at delivery, delivered), open directions, check in with
+the phone's location, and photograph the proof of delivery, which moves
+the load to "POD received" for billing.
+
 ## What it does
 
 | Area | What you get |
@@ -59,7 +79,11 @@ npm install
 npm run dev                 # API on :4000, web app on :5173
 ```
 
-Open http://localhost:5173 and enter the `TMS_API_KEY` under Connections.
+Open http://localhost:5173, create an account and set up your business.
+Sign-in needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. In Supabase,
+Authentication → URL Configuration must list the web app's address as the
+Site URL (invite, confirmation and reset links go there), and "Confirm
+email" stays on: invitations are matched to people by their confirmed email.
 
 ```bash
 npm test                    # API + provider tests
@@ -69,12 +93,19 @@ npm run build               # web app → apps/web/dist
 
 ## API
 
-Every route except `/health` and the signed port webhook requires
-`Authorization: Bearer $TMS_API_KEY`. Refusals carry `problems`, the list of
-things to fix (for example every reason a trip can't be dispatched).
+Every route except `/health` and the signed port webhook needs
+`Authorization: Bearer <token>`: a signed-in person's Supabase access token,
+or the platform key (`TMS_API_KEY`, plus `X-Org-Id` to act inside one
+company). Email, CRM, AI, `/providers`, adding port terminals and the FMCSA
+re-check are platform-only. Refusals carry `problems`, the list of things to
+fix (for example every reason a trip can't be dispatched).
 
 | Route | Does |
 |---|---|
+| `GET /me`, `POST /onboarding` | Who am I (accepts a pending invitation on first sign-in); start a company or owner-operator business |
+| `GET /members`, `POST /members/invitations`, `PATCH /members/:id` | Owners: team, invitations, roles, driver links, remove access |
+| `GET /driver/trips`, `POST /driver/trips/:id/start\|complete\|events`, `POST /driver/loads/:id/status` | Driver app |
+| `GET/POST /loads/:id/documents`, `POST /loads/:id/documents/upload-url` (also under `/driver`) | POD, BOL, photos via signed upload URLs |
 | `GET /providers` | Which provider each capability uses and whether it is configured |
 | `POST /email/send` | `{to, subject, html, replyTo?}` from the connected mailbox |
 | `GET /email/unread?limit=20` | Unread inbox messages |
@@ -104,16 +135,17 @@ things to fix (for example every reason a trip can't be dispatched).
 - `packages/providers`: the email, CRM, AI, GPS, FMCSA and database adapters, plus the registry that picks one per capability.
 - `apps/api`: the Express API (`apps/api/Dockerfile`; build from the repo root).
 - `apps/web`: the Vite + React dispatcher app, deployed to Vercel.
-- `supabase/migrations`: the schema. `002` turns on row-level security for every table (the API uses the service-role key); `003` adds equipment types, trailers, driver qualifications and container clocks.
+- `supabase/migrations`: the schema. `002` turns on row-level security for every table (the API uses the service-role key); `003` adds equipment types, trailers, driver qualifications and container clocks; `004` adds organizations' members, invitations, `org_id` everywhere, load documents and the private `documents` storage bucket.
 
 ## Deploy
 
 ```bash
 ./scripts/init-supabase.sh  # link, push migrations, generate types
-./scripts/init-vercel.sh    # web app; set VITE_API_URL to the API's URL
+./scripts/init-vercel.sh    # web app on Vercel; set VITE_API_URL to the API's URL
 ```
 
 The API runs anywhere Docker runs (for example Railway); keep every secret there, never in `VITE_` variables.
+The web app can also run on Railway from `apps/web/Dockerfile` (Caddy serving the build); its `VITE_` variables are read at build time.
 
 ## Not built yet
 

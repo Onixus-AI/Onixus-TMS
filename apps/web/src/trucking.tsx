@@ -1,30 +1,30 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import {
   BILLABLE, CONTAINER_SIZES, CONTAINER_TYPES, DIRECTIONS, DISPATCHABLE, EQUIPMENT_LABELS, EQUIPMENT_RULES, EQUIPMENT_TYPES,
   LOAD_STATUSES, LOAD_TRANSITIONS, TRAILER_KINDS, TRUCK_KINDS, type EquipmentType, type LoadStatus,
 } from "@onixus/core";
-import { api, ApiError, apiBase } from "./api";
+import { api, ApiError, apiBase, uploadDocument } from "./api";
 
 // Dispatcher screens: loads, dispatch, containers, fleet, customers. Every
 // rule (what truck a load needs, which status comes next) comes from
 // @onixus/core, the same code the API enforces.
 
-type Row = Record<string, any> & { id: string };
+export type Row = Record<string, any> & { id: string };
 type Risk = { level: "NONE" | "WATCH" | "URGENT" | "ACCRUING"; reason: string; demurrage: number; perDiem: number };
-type Load = Row & { load_number?: string; status: LoadStatus; equipment_type: EquipmentType; charges?: { risk: Risk } | null };
+export type Load = Row & { load_number?: string; status: LoadStatus; equipment_type: EquipmentType; charges?: { risk: Risk } | null };
 
-const usd = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD" }));
+export const usd = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD" }));
 /** The load number, or the start of its id before the database has numbered it. */
-const ref = (l?: Row | null) => (l ? l.load_number ?? l.id.slice(0, 8) : "—");
-const human = (s: string) => s.toLowerCase().replace(/_/g, " ");
+export const ref = (l?: Row | null) => (l ? l.load_number ?? l.id.slice(0, 8) : "—");
+export const human = (s: string) => s.toLowerCase().replace(/_/g, " ");
 
-function errorText(e: unknown): string {
-  if (e instanceof ApiError && e.status === 401) return "The API key was rejected. Enter it again under Connections.";
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError && e.status === 401) return "Your session expired. Sign in again.";
   if (e instanceof TypeError) return `Cannot reach the API at ${apiBase}. Is it running?`;
   return e instanceof Error ? e.message : String(e);
 }
 
-function Problem({ error }: { error: unknown }) {
+export function Problem({ error }: { error: unknown }) {
   if (!error) return null;
   return (
     <div className="error">
@@ -37,7 +37,7 @@ function Problem({ error }: { error: unknown }) {
 }
 
 /** GET a path, with reload. */
-function useGet<T>(path: string | null) {
+export function useGet<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const reload = useCallback(() => {
@@ -50,7 +50,7 @@ function useGet<T>(path: string | null) {
 }
 
 /** Run a write, report its error, then refresh. */
-function useAction(after: () => void) {
+export function useAction(after: () => void) {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const run = async (fn: () => Promise<unknown>) => {
@@ -71,7 +71,7 @@ function useAction(after: () => void) {
 }
 
 /** Form fields → JSON: empty fields are left out, `numbers` are parsed, checkboxes become booleans. */
-function formBody(form: HTMLFormElement, numbers: string[] = []): Record<string, unknown> {
+export function formBody(form: HTMLFormElement, numbers: string[] = []): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const el of Array.from(form.elements) as HTMLInputElement[]) {
     if (!el.name) continue;
@@ -81,10 +81,10 @@ function formBody(form: HTMLFormElement, numbers: string[] = []): Record<string,
   return out;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label>{label}{children}</label>;
 }
-function Select({ name, options, empty, value, onChange, required }: { name: string; options: [string, string][]; empty?: string; value?: string; onChange?: (v: string) => void; required?: boolean }) {
+export function Select({ name, options, empty, value, onChange, required }: { name: string; options: [string, string][]; empty?: string; value?: string; onChange?: (v: string) => void; required?: boolean }) {
   return (
     <select name={name} value={value} onChange={onChange && ((e) => onChange(e.target.value))} required={required}>
       {empty !== undefined && <option value="">{empty}</option>}
@@ -92,7 +92,7 @@ function Select({ name, options, empty, value, onChange, required }: { name: str
     </select>
   );
 }
-const enumOptions = (values: readonly string[], labels?: Record<string, string>): [string, string][] => values.map((v) => [v, labels?.[v] ?? human(v)]);
+export const enumOptions = (values: readonly string[], labels?: Record<string, string>): [string, string][] => values.map((v) => [v, labels?.[v] ?? human(v)]);
 
 function RiskBadge({ risk }: { risk?: Risk | null }) {
   if (!risk || risk.level === "NONE") return null;
@@ -168,7 +168,8 @@ function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
   if (!data) return <p className="muted">Loading…</p>;
   const { load, events, charges } = data;
   // Assignment goes through dispatch, which checks the equipment and driver.
-  const next = LOAD_TRANSITIONS[load.status].filter((s) => !(["ASSIGNED", "DISPATCHED"].includes(s) && load.status !== "ON_HOLD" && load.status !== "DISPATCHED"));
+  // and invoicing goes through "create invoice", which bills the charges.
+  const next = LOAD_TRANSITIONS[load.status].filter((s) => s !== "INVOICED" && !(["ASSIGNED", "DISPATCHED"].includes(s) && load.status !== "ON_HOLD" && load.status !== "DISPATCHED"));
   return (
     <div className="card stack">
       <h3>{ref(load)} · {EQUIPMENT_LABELS[load.equipment_type]} · {human(load.status)}</h3>
@@ -201,6 +202,7 @@ function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
         )}
       </div>
       <Problem error={action.error} />
+      <Documents scope="" loadId={load.id} onChange={() => { reload(); onChange(); }} />
       <ol className="small muted">
         {events.map((e) => <li key={e.id}>{e.created_at?.slice(0, 16).replace("T", " ")} · {e.from_status ? `${human(e.from_status)} → ` : ""}{human(e.to_status)}{e.note ? ` · ${e.note}` : ""}</li>)}
       </ol>
@@ -527,6 +529,46 @@ export function Customers() {
       </form>
       <Problem error={error} />
       <ul className="list">{data?.customers.map((c) => <CustomerCard key={c.id} c={c} onChange={reload} />)}</ul>
+    </div>
+  );
+}
+
+// ── Documents (POD, BOL, rate confirmations, photos) ───────────────────────
+
+const DOC_LABELS: Record<string, string> = { POD: "Proof of delivery", BOL: "Bill of lading", PHOTO: "Photo", RATE_CONFIRMATION: "Rate confirmation", OTHER: "Document" };
+
+export function Documents({ scope, loadId, onChange, compact }: { scope: "" | "/driver"; loadId: string; onChange?: () => void; compact?: boolean }) {
+  const { data, reload } = useGet<{ documents: (Row & { kind: string; url: string; file_name?: string })[] }>(`${scope}/loads/${loadId}/documents`);
+  const [kind, setKind] = useState("POD");
+  const action = useAction(() => {
+    reload();
+    onChange?.();
+  });
+  const pick = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) action.run(() => uploadDocument(scope, loadId, kind, file));
+  };
+  return (
+    <div className="stack">
+      {!compact && <strong className="small">Documents</strong>}
+      <div className="actions">
+        <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Document type">
+          <option value="POD">Proof of delivery</option>
+          <option value="BOL">Bill of lading</option>
+          <option value="PHOTO">Photo</option>
+          <option value="RATE_CONFIRMATION">Rate confirmation</option>
+          <option value="OTHER">Other</option>
+        </select>
+        <label className="upload">
+          {action.busy ? "Uploading…" : "Take photo / upload"}
+          <input type="file" accept="image/*,application/pdf" capture="environment" onChange={pick} disabled={action.busy} hidden />
+        </label>
+      </div>
+      <Problem error={action.error} />
+      {data?.documents.map((d) => (
+        <a key={d.id} href={d.url} target="_blank" rel="noreferrer" className="small">📄 {DOC_LABELS[d.kind] ?? human(d.kind)} · {d.file_name ?? "file"}</a>
+      ))}
     </div>
   );
 }
