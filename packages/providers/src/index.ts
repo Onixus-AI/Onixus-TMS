@@ -9,3 +9,8 @@ export { GLOBAL_TABLES, memoryStore, scopedStore, storeFromEnv, supabaseStore, S
 export { supabaseFiles, supabaseInvite, supabaseUser, type AuthUser, type FileStore, type SignedUpload } from "./files.js";
 export { fmcsa, judgeCarrier, type CarrierCheck, type ComplianceStatus } from "./compliance/fmcsa.js";
 export { openAiCompatible } from "./llm/openai.js";
+export { CATEGORIES, CONNECTORS, connector, oauthReady, authorizeUrl, exchangeCode, type Category, type Connector, type Credentials, type Field, type TokenSet } from "./connect/catalog.js";
+export { seal, unseal, signToken, verifyToken } from "./connect/crypto.js";
+export { samsara } from "./tracking/samsara.js";
+export { motive } from "./tracking/motive.js";
+export { quickbooks } from "./finance/quickbooks.js";

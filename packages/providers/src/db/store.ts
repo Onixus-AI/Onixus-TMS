@@ -19,6 +19,8 @@ export interface Store {
   insert<T extends Row = Row>(table: string, row: Record<string, unknown>): Promise<T>;
   /** Update one row. With `expect`, only when those columns still hold those values; returns null otherwise (someone else changed it). */
   update<T extends Row = Row>(table: string, id: string, patch: Record<string, unknown>, expect?: Where): Promise<T | null>;
+  /** Delete one row; false when it was not there. */
+  remove(table: string, id: string): Promise<boolean>;
 }
 
 /** A database error with the HTTP status it should surface as. */
@@ -68,6 +70,11 @@ export function supabaseStore(client: SupabaseClient): Store {
       if (error) fail(error);
       return data as T | null;
     },
+    async remove(table: string, id: string) {
+      const { data, error } = await client.from(table).delete().eq("id", id).select("id");
+      if (error) fail(error);
+      return (data ?? []).length > 0;
+    },
   };
 }
 
@@ -95,6 +102,11 @@ export function scopedStore(base: Store, orgId: string): Store {
     },
     insert: (table, row) => base.insert(table, global(table) ? row : { ...withoutOrg(row), org_id: orgId }),
     update: (table, id, patch, expect) => base.update(table, id, withoutOrg(patch), global(table) ? expect : { ...expect, org_id: orgId }),
+    async remove(table, id) {
+      if (global(table)) return false;
+      const row = await base.get(table, id);
+      return row?.org_id === orgId ? base.remove(table, id) : false;
+    },
   };
 }
 
@@ -132,6 +144,12 @@ export function memoryStore(seed: Record<string, Row[]> = {}): Store & { tables:
       if (!r || !matches(r, expect)) return null;
       Object.assign(r, patch);
       return { ...r } as T;
+    },
+    async remove(table: string, id: string) {
+      const i = rows(table).findIndex((x) => x.id === id);
+      if (i < 0) return false;
+      rows(table).splice(i, 1);
+      return true;
     },
   };
 }

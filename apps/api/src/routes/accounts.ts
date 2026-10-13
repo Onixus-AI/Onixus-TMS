@@ -4,6 +4,7 @@ import { CONTAINER_SIZES, EQUIPMENT_LABELS, EQUIPMENT_TYPES, BILLABLE, type Equi
 import { defined, HttpError, isoDate, money, mustGet, text, today, uuid, type Ctx } from "../http.js";
 import { charges, moveLoad, type Load } from "./loads.js";
 import { extrasFor } from "./overview.js";
+import { connected } from "./connections.js";
 
 export const CUSTOMER_TYPES = ["SHIPPER", "MANUFACTURER", "BROKER", "FREIGHT_FORWARDER", "STEAMSHIP_LINE", "DEPOT", "WAREHOUSE", "PORT_TERMINAL", "CHASSIS_POOL"] as const;
 
@@ -66,8 +67,17 @@ export function accountRoutes(ctx: Ctx) {
     const q = z.object({ type: z.enum(CUSTOMER_TYPES).optional() }).parse(req.query);
     res.json({ customers: await ctx.store().list("customers", defined(q), { order: "company_name", ascending: true, limit: 500 }) });
   });
+  // A new customer also goes to the company's CRM when one is connected; a CRM hiccup never blocks the booking.
   r.post("/customers", async (req, res) => {
-    res.status(201).json({ customer: await ctx.store().insert("customers", { compliance_status: "PENDING", ...defined(customer.parse(req.body)) }) });
+    const row = await ctx.store().insert<CrmCustomer>("customers", { compliance_status: "PENDING", ...defined(customer.parse(req.body)) });
+    const crm = await syncToCrm(ctx, row).catch((e: Error) => ({ error: e.message }));
+    res.status(201).json({ customer: "customer" in (crm ?? {}) ? (crm as { customer: CrmCustomer }).customer : row, crm });
+  });
+  r.post("/customers/:id/crm-sync", async (req, res) => {
+    const row = await mustGet<CrmCustomer>(ctx, "customers", req.params.id, "Customer");
+    const crm = await syncToCrm(ctx, row);
+    if (!crm) throw new HttpError(409, "Connect a CRM first (Connections)");
+    res.json(crm);
   });
   r.get("/customers/:id", async (req, res) => {
     const c = await mustGet(ctx, "customers", req.params.id, "Customer");
@@ -150,6 +160,22 @@ export function accountRoutes(ctx: Ctx) {
     res.json({ invoices: await ctx.store().list("invoices", defined(q), { order: "created_at", limit: 500 }) });
   });
 
+  // An invoice into the company's books (QuickBooks), once.
+  r.post("/invoices/:id/push", async (req, res) => {
+    const inv = await mustGet<{ id: string; invoice_number?: string | null; customer_id: string | null; amount: number; status: string; created_at?: string; accessorials: { description: string; amount: number }[]; finance_ref?: string | null; finance_provider?: string | null }>(ctx, "invoices", req.params.id, "Invoice");
+    if (inv.status === "VOID") throw new HttpError(409, "This invoice is void");
+    if (inv.finance_ref) throw new HttpError(409, `Already in ${inv.finance_provider ?? "your books"} (${inv.finance_ref})`);
+    const books = await connected(ctx, "finance");
+    if (!books) throw new HttpError(409, "Connect QuickBooks first (Connections)");
+    const cust = inv.customer_id ? await ctx.store().get<{ id: string; company_name: string; email?: string | null }>("customers", inv.customer_id) : null;
+    if (!cust) throw new HttpError(422, "This invoice has no customer");
+    const out = await books.pushInvoice({
+      number: inv.invoice_number ?? inv.id.slice(0, 8), date: (inv.created_at ?? ctx.now().toISOString()).slice(0, 10),
+      customerName: cust.company_name, customerEmail: cust.email ?? null, lines: inv.accessorials.map((l) => ({ description: l.description, amount: l.amount })),
+    });
+    res.json({ invoice: await ctx.store().update("invoices", inv.id, { finance_ref: out.id, finance_provider: books.name }) });
+  });
+
   /** Bill a delivered load: line haul, any accessorials, and the container's demurrage and per diem. */
   r.post("/loads/:id/invoice", async (req, res) => {
     const body = invoiceRequest.parse(req.body ?? {});
@@ -172,6 +198,19 @@ export function accountRoutes(ctx: Ctx) {
   });
 
   return r;
+}
+
+type CrmCustomer = { id: string; company_name: string; type: string; email?: string | null; crm_ref?: string | null };
+
+/** Add the customer to the connected CRM (once); null when no CRM is connected. */
+async function syncToCrm(ctx: Ctx, c: CrmCustomer) {
+  const crm = await connected(ctx, "crm");
+  if (!crm) return null;
+  if (c.crm_ref) return { customer: c, crm_ref: c.crm_ref, created: false };
+  const company = await crm.createCompany({ name: c.company_name, type: c.type });
+  if (c.email) await crm.createContact({ email: c.email, companyId: company.id }).catch(() => undefined);
+  const customer = await ctx.store().update<CrmCustomer>("customers", c.id, { crm_ref: company.id });
+  return { customer: customer ?? c, crm_ref: company.id, created: true };
 }
 
 export async function checkCustomer(ctx: Ctx, c: Customer) {

@@ -17,14 +17,15 @@ type GraphMessage = {
   toRecipients: { emailAddress: { address: string } }[];
 };
 
-export function microsoft(env: Env): EmailProvider {
+export function microsoft(env: Env, opts: { onRotate?: (refreshToken: string) => void } = {}): EmailProvider {
   const v = requireVars(env, "Microsoft / Outlook", [...MICROSOFT_VARS]);
   const tenant = env.MS_TENANT_ID?.trim() || "common";
   const auth = new RefreshTokenAuth(
     "Microsoft",
     `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`,
-    { client_id: v.MS_CLIENT_ID, client_secret: v.MS_CLIENT_SECRET, scope: "offline_access Mail.Read Mail.Send" },
+    { client_id: v.MS_CLIENT_ID, client_secret: v.MS_CLIENT_SECRET, scope: env.MS_SCOPE?.trim() || "offline_access Mail.Read Mail.Send" },
     v.MS_REFRESH_TOKEN,
+    opts,
   );
   const call = async <T>(path: string, init: RequestInit = {}) =>
     fetchJson<T>(

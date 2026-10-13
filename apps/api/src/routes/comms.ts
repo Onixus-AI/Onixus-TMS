@@ -6,6 +6,7 @@ import { HttpError, mustGet, text, uuid, type Ctx } from "../http.js";
 import { legsOf, placesFor } from "./legs.js";
 import type { Load } from "./loads.js";
 import { overviewData } from "./overview.js";
+import { connected } from "./connections.js";
 
 // Email and AI for the office. Emails go out through the platform's mailbox
 // under the company's name, with replies to the dispatcher who sent them,
@@ -73,7 +74,8 @@ export function commsFor(ctx: Ctx) {
   async function send(input: { to: string; subject: string; html: string; body: string; load_id?: string | null; invoice_id?: string | null }) {
     const { orgId, email } = caller();
     const company = await orgName(orgId);
-    const mailer = ctx.mailer();
+    // The company's own mailbox when it connected one; otherwise the platform's, under its name.
+    const mailer = (await connected(ctx, "email")) ?? ctx.mailer();
     const sent = await mailer.send({ to: input.to, subject: input.subject, html: input.html, fromName: company, ...(email ? { replyTo: email } : {}) });
     return ctx.store().insert("email_log", {
       load_id: input.load_id ?? null, invoice_id: input.invoice_id ?? null, to_address: input.to, subject: input.subject, body: input.body,
@@ -181,13 +183,14 @@ export function commsRoutes(ctx: Ctx) {
   const { caller, orgName, send, ask, draftEmail } = commsFor(ctx);
 
   /** What the office can use right now; the UI explains what is missing instead of failing on click. */
-  r.get("/comms/status", (_req, res) => {
+  r.get("/comms/status", async (_req, res) => {
     const all = providerStatus(ctx.env);
     const pick = (cap: "email" | "llm") => {
       const s = all.find((p) => p.capability === cap);
       return { provider: s?.provider ?? null, ready: Boolean(s?.available && s.configured), missing: s?.missing ?? [] };
     };
-    res.json({ email: pick("email"), ai: pick("llm") });
+    const [own] = await ctx.store().list<{ id: string; provider: string; account: string | null }>("connections", { category: "email" }, { limit: 1 });
+    res.json({ email: own ? { provider: own.provider, ready: true, missing: [], account: own.account } : pick("email"), ai: pick("llm") });
   });
 
   r.get("/emails", async (req, res) => {

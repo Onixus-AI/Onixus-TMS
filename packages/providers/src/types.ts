@@ -74,6 +74,15 @@ export interface LlmProvider {
   extractJson?(request: Extraction): Promise<unknown>;
 }
 
+/** An invoice as a finance system receives it. */
+export type FinanceInvoice = { number: string; date: string; customerName: string; customerEmail?: string | null; lines: { description: string; amount: number }[] };
+
+export interface FinanceProvider {
+  readonly name: string;
+  /** Create the invoice in the finance system; returns its id there. */
+  pushInvoice(invoice: FinanceInvoice): Promise<{ id: string }>;
+}
+
 export type VehiclePosition = {
   /** The tracker's unique id; matches trucks.tracking_device_id. */
   deviceId: string;
