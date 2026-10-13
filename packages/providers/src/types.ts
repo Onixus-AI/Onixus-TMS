@@ -55,10 +55,21 @@ export interface CrmProvider {
 
 export type Completion = { system?: string; prompt: string; maxTokens?: number };
 
+/** Read a document (PDF or photo) and/or text into JSON matching a JSON Schema. */
+export type Extraction = {
+  system: string;
+  text?: string;
+  file?: { base64: string; mediaType: string };
+  schema: Record<string, unknown>;
+  maxTokens?: number;
+};
+
 export interface LlmProvider {
   readonly name: string;
   readonly model: string;
   complete(request: Completion): Promise<{ text: string; model: string }>;
+  /** Structured extraction from documents; providers without it cannot read files. */
+  extractJson?(request: Extraction): Promise<unknown>;
 }
 
 export type VehiclePosition = {

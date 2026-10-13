@@ -1,27 +1,19 @@
 import { useState } from "react";
-import { EQUIPMENT_LABELS, FINISHED, LOAD_TRANSITIONS, type LoadStatus } from "@onixus/core";
+import { EQUIPMENT_LABELS, LEG_NEXT, legActionLabel, type LegStatus } from "@onixus/core";
 import { api } from "./api";
 import { Documents, human, Problem, ref, useAction, useGet, type Load, type Row } from "./trucking";
+import { legLabel } from "./drayage";
 
 // The driver app: big buttons, one trip at a time, built for a phone in a
 // cab. Drivers see only their own trips; owner-operators get it as "My trips".
 
-const ROAD: LoadStatus[] = ["AT_PICKUP", "PICKED_UP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED"];
-const LABEL: Partial<Record<LoadStatus, string>> = {
-  AT_PICKUP: "Arrived at pickup",
-  PICKED_UP: "Loaded / picked up",
-  IN_TRANSIT: "In transit",
-  AT_DELIVERY: "Arrived at delivery",
-  DELIVERED: "Delivered",
-};
-
-type Stop = { label?: string; address?: string | null; city?: string | null; state?: string | null; zip?: string | null; lat?: number | null; lng?: number | null } | null;
-type DriverLoad = Load & { pickup: Stop; delivery: Stop };
-type Trip = Row & { status: string; loads: DriverLoad[]; is_dual_transaction?: boolean };
+type Stop = { label?: string; name?: string; kind?: string; address?: string | null; city?: string | null; state?: string | null; zip?: string | null; lat?: number | null; lng?: number | null } | null;
+type DriverLeg = Row & { seq: number; cargo: "LOADED" | "EMPTY"; live: boolean; status: LegStatus; to_terminal_id: string | null; from: Stop; to: Stop; load: Load | null; appointment_at?: string | null; appointment_number?: string | null };
+type Trip = Row & { status: string; legs: DriverLeg[]; loads: Load[]; is_dual_transaction?: boolean };
 
 function place(s: Stop) {
   if (!s) return "—";
-  return [s.label, [s.address, s.city, s.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+  return [s.label ?? s.name, [s.address, s.city, s.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
 }
 function directions(s: Stop) {
   if (!s) return null;
@@ -41,36 +33,38 @@ function position(): Promise<{ lat?: number; lng?: number }> {
   });
 }
 
-function LoadCard({ load, tripStatus, onChange }: { load: DriverLoad; tripStatus: string; onChange: () => void }) {
+function LegCard({ leg, tripStatus, current, onChange }: { leg: DriverLeg; tripStatus: string; current: boolean; onChange: () => void }) {
   const action = useAction(onChange);
-  const next = ROAD.filter((s) => LOAD_TRANSITIONS[load.status].includes(s));
-  const live = tripStatus === "DISPATCHED" && !FINISHED.includes(load.status);
-  const go = (stop: Stop) => directions(stop);
+  const next = LEG_NEXT[leg.status];
+  const live = tripStatus === "DISPATCHED" && current && next;
+  const load = leg.load;
+  const heading = leg.status === "DISPATCHED" || leg.status === "AT_ORIGIN" ? leg.from : leg.to;
   return (
-    <div className="card stack driver-load">
-      <div className="muted small">{ref(load)} · {EQUIPMENT_LABELS[load.equipment_type]} · <strong>{human(load.status)}</strong></div>
-      {load.equipment_type === "CONTAINER" ? (
-        <div>📦 {load.container_number ?? "container to be assigned"} {load.container_size && `${load.container_size}'`} {load.direction && `· ${human(load.direction)}`}</div>
+    <div className={`card stack driver-load ${leg.status === "DONE" ? "done" : ""}`}>
+      <div className="muted small">Leg {leg.seq} · {legLabel(leg)} · <strong>{human(leg.status)}</strong>{load ? ` · ${ref(load)}` : ""}</div>
+      {load && (load.equipment_type === "CONTAINER" ? (
+        <div>📦 {load.container_number ?? "container to be assigned"} {load.container_size && `${load.container_size}'`}{load.pickup_number ? ` · Pickup # ${load.pickup_number}` : ""}{load.hazmat ? " · HAZMAT" : ""}</div>
       ) : (
-        <div>📦 {load.commodity ?? "freight"}{load.weight_lbs ? ` · ${load.weight_lbs.toLocaleString()} lbs` : ""}{load.pallet_count != null ? ` · ${load.pallet_count} pallets` : ""}{load.hazmat ? " · HAZMAT" : ""}</div>
-      )}
+        <div>📦 {EQUIPMENT_LABELS[load.equipment_type]} · {load.commodity ?? "freight"}{load.weight_lbs ? ` · ${load.weight_lbs.toLocaleString()} lbs` : ""}{load.pallet_count != null ? ` · ${load.pallet_count} pallets` : ""}{load.hazmat ? " · HAZMAT" : ""}</div>
+      ))}
       <div className="stops">
-        <div><span className="muted small">Pickup</span><br />{place(load.pickup)} {go(load.pickup) && <a href={go(load.pickup)!} target="_blank" rel="noreferrer">Directions</a>}</div>
-        <div><span className="muted small">Delivery</span><br />{place(load.delivery)} {go(load.delivery) && <a href={go(load.delivery)!} target="_blank" rel="noreferrer">Directions</a>}</div>
+        <div><span className="muted small">From</span><br />{place(leg.from)} {directions(leg.from) && <a href={directions(leg.from)!} target="_blank" rel="noreferrer">Directions</a>}</div>
+        <div><span className="muted small">To</span><br />{place(leg.to)} {directions(leg.to) && <a href={directions(leg.to)!} target="_blank" rel="noreferrer">Directions</a>}</div>
       </div>
-      {load.securement && <div className="small">Securement: {load.securement}</div>}
-      {load.notes && <div className="small">Notes: {load.notes}</div>}
+      {(leg.appointment_at || leg.appointment_number) && <div className="small">🕑 Appointment {leg.appointment_at ? new Date(leg.appointment_at).toLocaleString() : ""} {leg.appointment_number ? `#${leg.appointment_number}` : ""}</div>}
+      {load?.securement && <div className="small">Securement: {load.securement}</div>}
+      {load?.notes && <div className="small">Notes: {load.notes}</div>}
       {live && (
         <div className="big-actions">
-          {next.map((s) => (
-            <button key={s} className="primary" disabled={action.busy} onClick={() => action.run(() => api(`/driver/loads/${load.id}/status`, { method: "POST", body: { status: s } }))}>
-              {LABEL[s] ?? human(s)}
-            </button>
-          ))}
+          <button className="primary" disabled={action.busy} onClick={() => action.run(() => api(`/driver/legs/${leg.id}/advance`, { method: "POST", body: { to: next } }))}>
+            {legActionLabel(leg.cargo, leg.live, next, Boolean(leg.to_terminal_id))}
+          </button>
+          {heading && <span className="muted small">Next stop: {place(heading)}</span>}
         </div>
       )}
       <Problem error={action.error} />
-      <Documents scope="/driver" loadId={load.id} onChange={onChange} compact />
+      {/* Paperwork (POD, BOL, photos) belongs to the loaded legs. */}
+      {load && leg.cargo === "LOADED" && <Documents scope="/driver" loadId={load.id} onChange={onChange} compact />}
     </div>
   );
 }
@@ -78,7 +72,9 @@ function LoadCard({ load, tripStatus, onChange }: { load: DriverLoad; tripStatus
 function TripCard({ trip, onChange }: { trip: Trip; onChange: () => void }) {
   const action = useAction(onChange);
   const [checked, setChecked] = useState("");
-  const allDone = trip.loads.every((l) => FINISHED.includes(l.status));
+  const allDone = trip.legs.every((l) => l.status === "DONE" || l.status === "CANCELED");
+  // One leg at a time, in trip order.
+  const currentLeg = trip.legs.find((l) => l.status !== "DONE" && l.status !== "CANCELED");
   const checkIn = () =>
     action.run(async () => {
       const at = await position();
@@ -96,7 +92,7 @@ function TripCard({ trip, onChange }: { trip: Trip; onChange: () => void }) {
       )}
       {checked && <p className="muted small">{checked}</p>}
       <Problem error={action.error} />
-      {trip.loads.map((l) => <LoadCard key={l.id} load={l} tripStatus={trip.status} onChange={onChange} />)}
+      {trip.legs.map((l) => <LegCard key={l.id} leg={l} tripStatus={trip.status} current={l.id === currentLeg?.id} onChange={onChange} />)}
       {trip.status === "DISPATCHED" && allDone && (
         <button className="primary big" disabled={action.busy} onClick={() => action.run(() => api(`/driver/trips/${trip.id}/complete`, { method: "POST" }))}>Finish trip</button>
       )}

@@ -8,6 +8,8 @@ export type SignedUpload = { path: string; token: string; signedUrl: string };
 export interface FileStore {
   uploadUrl(path: string): Promise<SignedUpload>;
   downloadUrl(path: string): Promise<string>;
+  /** The file's bytes, for the API to read itself (delivery orders). */
+  download(path: string): Promise<Buffer>;
 }
 
 const BUCKET = "documents";
@@ -24,6 +26,11 @@ export function supabaseFiles(env: Env): FileStore {
       const { data, error } = await bucket().createSignedUrl(path, 3600);
       if (error || !data) throw Object.assign(new Error(`Storage: ${error?.message ?? "no download URL"}`), { status: 502 });
       return data.signedUrl;
+    },
+    async download(path) {
+      const { data, error } = await bucket().download(path);
+      if (error || !data) throw Object.assign(new Error(`Storage: ${error?.message ?? "file not found"}`), { status: 404 });
+      return Buffer.from(await data.arrayBuffer());
     },
   };
 }

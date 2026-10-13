@@ -20,6 +20,8 @@ export type ContainerClock = {
   last_free_day?: string | null;
   outgated_at?: string | null;
   empty_returned_at?: string | null;
+  /** Export: the loaded box in-gated at the terminal; per diem stops there. */
+  ingated_at?: string | null;
   cutoff_at?: string | null;
   demurrage_per_day?: number | null;
   per_diem_per_day?: number | null;
@@ -36,7 +38,7 @@ export function demurrage(load: ContainerClock, now: Date): { days: number; amou
 export function perDiem(load: ContainerClock, now: Date): { days: number; amount: number; freeDaysLeft: number } {
   if (load.equipment_type !== "CONTAINER" || !load.outgated_at) return { days: 0, amount: 0, freeDaysLeft: 0 };
   const free = load.per_diem_free_days ?? 4;
-  const used = dayNumber(load.empty_returned_at ?? now.toISOString()) - dayNumber(load.outgated_at);
+  const used = dayNumber(load.empty_returned_at ?? load.ingated_at ?? now.toISOString()) - dayNumber(load.outgated_at);
   const days = Math.max(0, used - free);
   return { days, amount: days * (load.per_diem_per_day ?? 0), freeDaysLeft: Math.max(0, free - used) };
 }
@@ -61,7 +63,7 @@ export function containerRisk(load: ContainerClock, now: Date): ContainerRisk {
     if (left <= 1) return { level: "URGENT", reason: left === 0 ? "Last free day is today" : "Last free day is tomorrow", ...base };
     if (left === 2) return { level: "WATCH", reason: "Last free day in 2 days", ...base };
   }
-  if (load.outgated_at && !load.empty_returned_at) {
+  if (load.outgated_at && !load.empty_returned_at && !load.ingated_at) {
     if (p.days > 0) return { level: "ACCRUING", reason: `Per diem: ${p.days} day(s) past free time; return the empty`, ...base };
     if (p.freeDaysLeft <= 1) return { level: "WATCH", reason: `Per diem starts in ${p.freeDaysLeft} day(s); return the empty or street-turn it`, ...base };
   }

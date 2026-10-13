@@ -1,19 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
-import { FINISHED } from "@onixus/core";
+import { LEG_STATUSES } from "@onixus/core";
 import { HttpError, member, mustGet, type Ctx } from "../http.js";
-import { moveLoad, type Load } from "./loads.js";
+import type { Load } from "./loads.js";
 import { addTripEvent, changeTripStatus, type Trip } from "./fleet.js";
+import { advanceLeg, type Leg } from "./legs.js";
 import { listDocuments, recordDocument, uploadUrl } from "./documents.js";
 
-// The driver app. A driver sees only trips assigned to their driver record,
-// and moves their loads through the road statuses; everything else stays
-// with the office.
+// The driver app. A driver sees only trips assigned to their driver record
+// and works them leg by leg (arrived, picked up, arrived, dropped or
+// unloaded); the loads' statuses and container clocks follow.
 
-/** What a driver may tap, in order. */
-export const DRIVER_STATUSES = ["AT_PICKUP", "PICKED_UP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED"] as const;
-
-type Location = { id: string; label?: string; address?: string | null; city?: string | null; state?: string | null; zip?: string | null; lat?: number | null; lng?: number | null };
+type Place = { id: string; name?: string; label?: string; address?: string | null; city?: string | null; state?: string | null; zip?: string | null; lat?: number | null; lng?: number | null };
 
 export function driverRoutes(ctx: Ctx) {
   const r = Router();
@@ -24,7 +22,15 @@ export function driverRoutes(ctx: Ctx) {
     return trip;
   }
 
-  /** A load on one of my dispatched trips. */
+  /** A leg on one of my trips. */
+  async function myLeg(id: string): Promise<{ leg: Leg; trip: Trip }> {
+    const leg = await mustGet<Leg>(ctx, "load_legs", id, "Leg");
+    const trip = leg.trip_id ? await ctx.store().get<Trip & { id: string }>("trips", leg.trip_id) : null;
+    if (!trip || trip.driver_id !== member(ctx).driver_id) throw new HttpError(404, "Leg not found");
+    return { leg, trip };
+  }
+
+  /** A load on one of my trips. */
   async function myLoad(id: string): Promise<{ load: Load; trip: Trip }> {
     const load = await mustGet<Load>(ctx, "loads", id, "Load");
     const trips = await ctx.store().list<Trip>("trips", { driver_id: member(ctx).driver_id, status: ["ASSIGNED", "DISPATCHED", "COMPLETED"] }, { limit: 200 });
@@ -33,7 +39,7 @@ export function driverRoutes(ctx: Ctx) {
     return { load, trip };
   }
 
-  // My open trips (and the last few finished), with each load's stops spelled out.
+  // My open trips (and the last few finished): each leg in order, with its places and load spelled out.
   r.get("/trips", async (_req, res) => {
     const store = ctx.store();
     const driverId = member(ctx).driver_id!;
@@ -42,17 +48,35 @@ export function driverRoutes(ctx: Ctx) {
       store.list<Trip>("trips", { driver_id: driverId, status: "COMPLETED" }, { order: "created_at", limit: 5 }),
     ]);
     const trips = [...open, ...done];
-    const loadIds = [...new Set(trips.flatMap((t) => t.load_ids ?? []))];
+    const legIds = [...new Set(trips.flatMap((t) => t.leg_ids ?? []))];
+    const legs = legIds.length ? await store.list<Leg>("load_legs", { id: legIds }, { limit: 500 }) : [];
+    const loadIds = [...new Set([...trips.flatMap((t) => t.load_ids ?? []), ...legs.map((l) => l.load_id)])];
     const loads = loadIds.length ? await store.list<Load>("loads", { id: loadIds }, { limit: 500 }) : [];
-    const locIds = [...new Set(loads.flatMap((l) => [l.pickup_location_id, l.delivery_location_id]).filter((x): x is string => !!x))];
-    const locations = locIds.length ? await store.list<Location>("customer_locations", { id: locIds }, { limit: 1000 }) : [];
+    const locIds = [...new Set(legs.flatMap((l) => [l.from_location_id, l.to_location_id]).filter((x): x is string => !!x))];
+    const termIds = [...new Set(legs.flatMap((l) => [l.from_terminal_id, l.to_terminal_id]).filter((x): x is string => !!x))];
+    const [locations, terminals] = await Promise.all([
+      locIds.length ? store.list<Place>("customer_locations", { id: locIds }, { limit: 1000 }) : [],
+      termIds.length ? store.list<Place>("port_terminals", { id: termIds }, { limit: 500 }) : [],
+    ]);
     const [truck, trailer] = await Promise.all([
       trips[0] ? store.get("trucks", trips[0].truck_id) : null,
       trips[0]?.trailer_id ? store.get("equipment", trips[0].trailer_id) : null,
     ]);
-    const loc = new Map(locations.map((l) => [l.id, l]));
-    const byId = new Map(loads.map((l) => [l.id, { ...l, pickup: l.pickup_location_id ? loc.get(l.pickup_location_id) ?? null : null, delivery: l.delivery_location_id ? loc.get(l.delivery_location_id) ?? null : null }]));
-    res.json({ trips: trips.map((t) => ({ ...t, loads: (t.load_ids ?? []).map((id) => byId.get(id)).filter(Boolean) })), truck, trailer });
+    const place = new Map<string, Place & { kind: string }>([
+      ...locations.map((l) => [l.id, { ...l, kind: "LOCATION" }] as const),
+      ...terminals.map((t) => [t.id, { ...t, label: t.name, kind: "TERMINAL" }] as const),
+    ]);
+    const loadById = new Map(loads.map((l) => [l.id, l]));
+    const legById = new Map(legs.map((l) => [l.id, {
+      ...l,
+      from: place.get(l.from_terminal_id ?? l.from_location_id ?? "") ?? null,
+      to: place.get(l.to_terminal_id ?? l.to_location_id ?? "") ?? null,
+      load: loadById.get(l.load_id) ?? null,
+    }]));
+    res.json({
+      trips: trips.map((t) => ({ ...t, legs: (t.leg_ids ?? []).map((id) => legById.get(id)).filter(Boolean), loads: (t.load_ids ?? []).map((id) => loadById.get(id)).filter(Boolean) })),
+      truck, trailer,
+    });
   });
 
   // Accept the trip and head out.
@@ -71,12 +95,12 @@ export function driverRoutes(ctx: Ctx) {
     res.status(201).json({ event: await addTripEvent(ctx, trip, req.body) });
   });
 
-  r.post("/loads/:id/status", async (req, res) => {
-    const { status, note } = z.object({ status: z.enum(DRIVER_STATUSES), note: z.string().trim().max(500).optional() }).parse(req.body);
-    const { load, trip } = await myLoad(req.params.id);
+  // The next step on a leg: arrived, picked up / hooked, arrived, dropped / unloaded / returned.
+  r.post("/legs/:id/advance", async (req, res) => {
+    const { to } = z.object({ to: z.enum(LEG_STATUSES).optional() }).parse(req.body ?? {});
+    const { leg, trip } = await myLeg(req.params.id);
     if (trip.status !== "DISPATCHED") throw new HttpError(409, trip.status === "ASSIGNED" ? "Start the trip first" : "This trip is finished");
-    if (FINISHED.includes(load.status)) throw new HttpError(409, "This load is already delivered");
-    res.json({ load: await moveLoad(ctx, load, status, note ?? "Driver update") });
+    res.json(await advanceLeg(ctx, leg, to));
   });
 
   r.get("/loads/:id/documents", async (req, res) => {

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bookingProblems, canTransition, chassisFits, containerNumberProblem, containerRisk, demurrage, dispatchProblems,
-  loadShapeProblems, perDiem, streetTurnMatches, type DriverLike,
+  loadShapeProblems, perDiem, planLegs, statusFromLegs, streetTurnMatches, type DriverLike,
 } from "./index.js";
 
 const today = "2026-10-12";
@@ -21,11 +21,39 @@ test("container fields are refused on other freight", () => {
   assert.deepEqual(loadShapeProblems({ equipment_type: "DRY_VAN", booking_number: "BK1" }), []);
 });
 
-test("booking needs the facts for each kind of load", () => {
+test("booking needs the facts for each kind of load, including where the move goes", () => {
   const base = { customer_id: "c", pickup_location_id: "p", delivery_location_id: "d", rate: 650 };
-  assert.deepEqual(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "IMPORT", container_size: "40", container_number: "CSQU3054383" }), []);
-  assert.deepEqual(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "EXPORT", container_size: "40" }), ["Missing booking number"]);
+  assert.deepEqual(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "IMPORT", container_size: "40", container_number: "CSQU3054383", terminal_id: "t" }), []);
+  assert.deepEqual(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "IMPORT", container_size: "40", container_number: "CSQU3054383" }), ["To plan the move, add: terminal"]);
+  assert.deepEqual(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "EXPORT", container_size: "40", terminal_id: "t" }), ["Missing booking number"]);
   assert.deepEqual(bookingProblems({ ...base, equipment_type: "BOX_TRUCK" }), ["Missing commodity, weight"]);
+  assert.deepEqual(bookingProblems({ customer_id: "c", rate: 1, equipment_type: "BOX_TRUCK", commodity: "x", weight_lbs: 1 }), ["To plan the move, add: pickup location, delivery location"]);
+  assert.deepEqual(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "IMPORT", container_size: "40", container_number: "CSQU3054383", terminal_id: "t", move_type: "IMPORT_PREPULL" }), ["To plan the move, add: yard"]);
+  assert.match(bookingProblems({ ...base, equipment_type: "CONTAINER", direction: "IMPORT", container_size: "40", container_number: "CSQU3054383", terminal_id: "t", move_type: "EXPORT_LIVE" })[0], /import cannot make an export/);
+});
+
+test("moves become legs, and the load status follows the legs", () => {
+  const live = planLegs({ move_type: "IMPORT_LIVE", terminal_id: "T", delivery_location_id: "C" });
+  assert.deepEqual(live.map((l) => [l.cargo, l.from_terminal_id ?? l.from_location_id, l.to_terminal_id ?? l.to_location_id, l.live]), [["LOADED", "T", "C", true], ["EMPTY", "C", "T", false]]);
+  const prepull = planLegs({ move_type: "IMPORT_PREPULL", terminal_id: "T", delivery_location_id: "C", yard_location_id: "Y", return_location_id: "DEPOT" });
+  assert.deepEqual(prepull.map((l) => [l.from_terminal_id ?? l.from_location_id, l.to_terminal_id ?? l.to_location_id]), [["T", "Y"], ["Y", "C"], ["C", "DEPOT"]]);
+  const exp = planLegs({ move_type: "EXPORT_DROP", terminal_id: "T", pickup_location_id: "S", empty_pickup_location_id: "DEPOT" });
+  assert.deepEqual(exp.map((l) => [l.cargo, l.from_terminal_id ?? l.from_location_id, l.to_terminal_id ?? l.to_location_id, l.live]), [["EMPTY", "DEPOT", "S", false], ["LOADED", "S", "T", false]]);
+  assert.equal(planLegs({ move_type: "IMPORT_LIVE", terminal_id: "T" }).length, 0, "no consignee, no plan");
+
+  const st = (statuses: string[]) => prepull.map((l, i) => ({ ...l, status: statuses[i] as any }));
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["PLANNED", "PLANNED", "PLANNED"])), null);
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["ASSIGNED", "PLANNED", "PLANNED"])), "ASSIGNED");
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["AT_ORIGIN", "PLANNED", "PLANNED"])), "AT_PICKUP");
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["IN_TRANSIT", "PLANNED", "PLANNED"])), "PICKED_UP");
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["DONE", "PLANNED", "PLANNED"])), "IN_TRANSIT", "sitting at the yard");
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["DONE", "AT_DESTINATION", "PLANNED"])), "AT_DELIVERY");
+  assert.equal(statusFromLegs("IMPORT_PREPULL", st(["DONE", "DONE", "PLANNED"])), "DELIVERED");
+  // Export: the empty leg only dispatches the load; the loaded box in-gating delivers it.
+  const ex = (a: string, b: string) => exp.map((l, i) => ({ ...l, status: [a, b][i] as any }));
+  assert.equal(statusFromLegs("EXPORT_DROP", ex("IN_TRANSIT", "PLANNED")), "DISPATCHED");
+  assert.equal(statusFromLegs("EXPORT_DROP", ex("DONE", "IN_TRANSIT")), "PICKED_UP");
+  assert.equal(statusFromLegs("EXPORT_DROP", ex("DONE", "DONE")), "DELIVERED");
 });
 
 test("status moves follow the lifecycle", () => {

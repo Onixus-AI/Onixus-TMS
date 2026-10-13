@@ -4,6 +4,7 @@ import {
   LOAD_STATUSES, LOAD_TRANSITIONS, TRAILER_KINDS, TRUCK_KINDS, type EquipmentType, type LoadStatus,
 } from "@onixus/core";
 import { api, ApiError, apiBase, uploadDocument } from "./api";
+import { DoImport, legLabel, legRoute, LegsPanel, MoveFields, PlacesSection, splitPlace, type Leg, type Place } from "./drayage";
 
 // Dispatcher screens: loads, dispatch, containers, fleet, customers. Every
 // rule (what truck a load needs, which status comes next) comes from
@@ -109,12 +110,14 @@ function NewLoad({ onDone }: { onDone: () => void }) {
   const action = useAction(onDone);
   const shippers = (customers.data?.customers ?? []).filter((c) => c.type !== "STEAMSHIP_LINE");
   const lines = (customers.data?.customers ?? []).filter((c) => c.type === "STEAMSHIP_LINE");
-  const places: [string, string][] = (locations.data?.locations ?? []).map((l) => [l.id, l.label]);
+  const places: [string, string][] = (locations.data?.locations ?? []).filter((l) => (l.kind ?? "CUSTOMER") === "CUSTOMER").map((l) => [l.id, l.label]);
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const body = formBody(e.currentTarget, ["rate", "weight_lbs", "pallet_count", "length_in", "width_in", "height_in", "demurrage_per_day", "per_diem_per_day"]);
+    const { return_place, empty_pickup_place, ...body } = formBody(e.currentTarget, ["rate", "weight_lbs", "pallet_count", "length_in", "width_in", "height_in", "demurrage_per_day", "per_diem_per_day"]);
     const form = e.currentTarget;
-    action.run(() => api("/loads", { method: "POST", body })).then((ok) => ok && form.reset());
+    const move = type === "CONTAINER" ? { ...splitPlace(return_place, "return_terminal_id", "return_location_id"), ...splitPlace(empty_pickup_place, "empty_pickup_terminal_id", "empty_pickup_location_id") } : {};
+    const clean = Object.fromEntries(Object.entries({ ...body, ...move }).filter(([, v]) => v !== null));
+    action.run(() => api("/loads", { method: "POST", body: clean })).then((ok) => ok && form.reset());
   };
   return (
     <form className="card stack" onSubmit={submit}>
@@ -122,13 +125,13 @@ function NewLoad({ onDone }: { onDone: () => void }) {
       <div className="fields">
         <Field label="Equipment"><Select name="equipment_type" value={type} onChange={(v) => setType(v as EquipmentType)} options={enumOptions(EQUIPMENT_TYPES, EQUIPMENT_LABELS)} /></Field>
         <Field label="Customer"><Select name="customer_id" empty="—" options={shippers.map((c) => [c.id, c.company_name])} /></Field>
-        <Field label="Pickup"><Select name="pickup_location_id" empty="—" options={places} /></Field>
-        <Field label="Delivery"><Select name="delivery_location_id" empty="—" options={places} /></Field>
+        {type !== "CONTAINER" && <Field label="Pickup"><Select name="pickup_location_id" empty="—" options={places} /></Field>}
+        {type !== "CONTAINER" && <Field label="Delivery"><Select name="delivery_location_id" empty="—" options={places} /></Field>}
         <Field label="Rate ($)"><input name="rate" type="number" min="0" step="0.01" /></Field>
       </div>
+      {type === "CONTAINER" && <MoveFields />}
       {type === "CONTAINER" ? (
         <div className="fields">
-          <Field label="Import / export"><Select name="direction" empty="—" options={enumOptions(DIRECTIONS)} /></Field>
           <Field label="Container #"><input name="container_number" placeholder="MSCU1234565" /></Field>
           <Field label="Size"><Select name="container_size" empty="—" options={CONTAINER_SIZES.map((s) => [s, `${s}'`])} /></Field>
           <Field label="Type"><Select name="container_type" empty="—" options={enumOptions(CONTAINER_TYPES)} /></Field>
@@ -159,17 +162,18 @@ function NewLoad({ onDone }: { onDone: () => void }) {
 }
 
 function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
-  const { data, error, reload } = useGet<{ load: Load; events: Row[]; charges: { demurrage: { days: number; amount: number }; perDiem: { days: number; amount: number }; risk: Risk } | null }>(`/loads/${id}`);
+  const { data, error, reload } = useGet<{ load: Load; legs: Leg[]; places: Record<string, Place>; events: Row[]; charges: { demurrage: { days: number; amount: number }; perDiem: { days: number; amount: number }; risk: Risk } | null }>(`/loads/${id}`);
   const action = useAction(() => {
     reload();
     onChange();
   });
   if (error) return <Problem error={error} />;
   if (!data) return <p className="muted">Loading…</p>;
-  const { load, events, charges } = data;
-  // Assignment goes through dispatch, which checks the equipment and driver.
-  // and invoicing goes through "create invoice", which bills the charges.
-  const next = LOAD_TRANSITIONS[load.status].filter((s) => s !== "INVOICED" && !(["ASSIGNED", "DISPATCHED"].includes(s) && load.status !== "ON_HOLD" && load.status !== "DISPATCHED"));
+  const { load, legs, places, events, charges } = data;
+  // Road statuses come from the legs, assignment from dispatch, and
+  // invoicing from "create invoice", which bills the charges.
+  const ROAD = ["ASSIGNED", "DISPATCHED", "AT_PICKUP", "PICKED_UP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED", "INVOICED"];
+  const next = LOAD_TRANSITIONS[load.status].filter((s) => !ROAD.includes(s));
   return (
     <div className="card stack">
       <h3>{ref(load)} · {EQUIPMENT_LABELS[load.equipment_type]} · {human(load.status)}</h3>
@@ -177,7 +181,8 @@ function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
         {load.equipment_type === "CONTAINER" ? (
           <>
             <span>{load.direction ? human(load.direction) : "—"} · {load.container_number ?? "no container yet"} {load.container_size && `${load.container_size}'`}</span>
-            <span>LFD {load.last_free_day ?? "—"}{load.outgated_at && ` · out-gated ${load.outgated_at.slice(0, 10)}`}{load.empty_returned_at && ` · empty returned ${load.empty_returned_at.slice(0, 10)}`}</span>
+            <span>LFD {load.last_free_day ?? "—"}{load.outgated_at && ` · out-gated ${load.outgated_at.slice(0, 10)}`}{load.empty_returned_at && ` · empty returned ${load.empty_returned_at.slice(0, 10)}`}{load.ingated_at && ` · in-gated ${load.ingated_at.slice(0, 10)}`}</span>
+            {(load.vessel || load.bol_number || load.pickup_number) && <span>{[load.vessel && `Vessel ${load.vessel}${load.voyage ? `/${load.voyage}` : ""}`, load.vessel_eta && `ETA ${load.vessel_eta}`, load.bol_number && `B/L ${load.bol_number}`, load.pickup_number && `Pickup # ${load.pickup_number}`, load.customer_reference && `Ref ${load.customer_reference}`].filter(Boolean).join(" · ")}</span>}
           </>
         ) : (
           <span>{load.commodity ?? "—"} · {load.weight_lbs ? `${load.weight_lbs.toLocaleString()} lbs` : "no weight"}{load.pallet_count != null && ` · ${load.pallet_count} pallets`}</span>
@@ -194,14 +199,13 @@ function LoadDetail({ id, onChange }: { id: string; onChange: () => void }) {
         {next.map((s) => (
           <button key={s} disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/status`, { method: "POST", body: { status: s } }))}>{human(s)}</button>
         ))}
-        {load.equipment_type === "CONTAINER" && load.outgated_at && !load.empty_returned_at && (
-          <button disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/empty-returned`, { method: "POST", body: {} }))}>empty returned</button>
-        )}
+
         {BILLABLE.includes(load.status) && (
           <button disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/invoice`, { method: "POST", body: {} }))}>create invoice</button>
         )}
       </div>
       <Problem error={action.error} />
+      <LegsPanel legs={legs} places={places} onChange={() => { reload(); onChange(); }} />
       <Documents scope="" loadId={load.id} onChange={() => { reload(); onChange(); }} />
       <ol className="small muted">
         {events.map((e) => <li key={e.id}>{e.created_at?.slice(0, 16).replace("T", " ")} · {e.from_status ? `${human(e.from_status)} → ` : ""}{human(e.to_status)}{e.note ? ` · ${e.note}` : ""}</li>)}
@@ -215,6 +219,7 @@ export function Loads() {
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const q = new URLSearchParams({ ...(equipment && { equipment_type: equipment }), ...(status && { status }) }).toString();
   const { data, error, reload } = useGet<{ loads: Load[] }>(`/loads${q ? `?${q}` : ""}`);
   return (
@@ -222,8 +227,10 @@ export function Loads() {
       <div className="row">
         <Field label="Equipment"><Select name="eq" value={equipment} onChange={setEquipment} empty="All" options={enumOptions(EQUIPMENT_TYPES, EQUIPMENT_LABELS)} /></Field>
         <Field label="Status"><Select name="st" value={status} onChange={setStatus} empty="All" options={enumOptions(LOAD_STATUSES)} /></Field>
-        <button onClick={() => setCreating(!creating)}>{creating ? "Close" : "New load"}</button>
+        <button onClick={() => { setImporting(!importing); setCreating(false); }}>{importing ? "Close" : "Import delivery order"}</button>
+        <button onClick={() => { setCreating(!creating); setImporting(false); }}>{creating ? "Close" : "New load"}</button>
       </div>
+      {importing && <DoImport onDone={reload} />}
       {creating && <NewLoad onDone={reload} />}
       <Problem error={error} />
       <table>
@@ -251,23 +258,26 @@ export function Loads() {
 // ── Dispatch ────────────────────────────────────────────────────────────────
 
 export function Dispatch() {
-  const loads = useGet<{ loads: Load[] }>(`/loads?status=${DISPATCHABLE.join(",")}`);
+  const board = useGet<{ legs: Leg[]; loads: Load[]; places: Record<string, Place> }>("/legs?status=PLANNED");
   const drivers = useGet<{ drivers: Row[] }>("/drivers?status=AVAILABLE");
   const trucks = useGet<{ trucks: Row[] }>("/trucks?status=AVAILABLE");
   const trailers = useGet<{ trailers: Row[] }>("/trailers?status=AVAILABLE");
   const trips = useGet<{ trips: Row[] }>("/trips");
   const [picked, setPicked] = useState<string[]>([]);
-  const refresh = () => [loads, drivers, trucks, trailers, trips].forEach((x) => x.reload());
+  const refresh = () => [board, drivers, trucks, trailers, trips].forEach((x) => x.reload());
   const action = useAction(refresh);
 
-  const chosen = (loads.data?.loads ?? []).filter((l) => picked.includes(l.id));
+  const loadById = new Map((board.data?.loads ?? []).map((l) => [l.id, l]));
+  const chosen = (board.data?.legs ?? []).filter((l) => picked.includes(l.id)).map((l) => loadById.get(l.load_id)).filter((l): l is Load => !!l);
   const rule = chosen[0] ? EQUIPMENT_RULES[chosen[0].equipment_type] : null;
+  // Legs grouped by load, in order.
+  const groups = [...new Set((board.data?.legs ?? []).map((l) => l.load_id))].map((id) => ({ load: loadById.get(id), legs: (board.data?.legs ?? []).filter((l) => l.load_id === id).sort((a, b) => a.seq - b.seq) }));
   const fitTrucks = (trucks.data?.trucks ?? []).filter((t) => !rule || rule.trucks.includes(t.kind));
   const fitTrailers = (trailers.data?.trailers ?? []).filter((t) => rule?.trailer && t.kind === rule.trailer);
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const body = { ...formBody(e.currentTarget), load_ids: picked };
+    const body = { ...formBody(e.currentTarget), leg_ids: picked };
     action.run(() => api("/dispatch", { method: "POST", body })).then((ok) => ok && setPicked([]));
   };
   const tripAction = (id: string, status: string) => action.run(() => api(`/trips/${id}/status`, { method: "POST", body: { status } }));
@@ -276,18 +286,21 @@ export function Dispatch() {
     <div className="stack">
       <form className="card stack" onSubmit={submit}>
         <h3>Build a trip</h3>
-        <p className="muted small">Pick booked loads of one kind (two containers make a dual transaction), then the driver and equipment. The API refuses a trip it can't run and says why.</p>
-        <ul className="list compact">
-          {loads.data?.loads.map((l) => (
-            <li key={l.id}>
-              <label className="check">
-                <input type="checkbox" checked={picked.includes(l.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, l.id] : picked.filter((x) => x !== l.id))} />
-                {ref(l)} · {EQUIPMENT_LABELS[l.equipment_type]} · {l.container_number ?? l.commodity ?? ""} <RiskBadge risk={l.charges?.risk} />
-              </label>
-            </li>
+        <p className="muted small">Pick legs to drive. A live unload is usually both legs on one trip; for a drop, send the loaded leg now and the empty later. Two containers make a dual transaction. The API refuses a trip it can't run and says why.</p>
+        <div className="stack">
+          {groups.map(({ load, legs }) => (
+            <div key={legs[0].load_id} className="small">
+              <strong>{ref(load)}</strong> · {load ? EQUIPMENT_LABELS[load.equipment_type] : ""} · {load?.container_number ?? load?.commodity ?? ""} <RiskBadge risk={load?.charges?.risk} />
+              {legs.map((l) => (
+                <label key={l.id} className="check leg">
+                  <input type="checkbox" checked={picked.includes(l.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, ...legs.filter((x) => x.seq <= l.seq && !picked.includes(x.id)).map((x) => x.id)] : picked.filter((x) => !legs.some((y) => y.id === x && y.seq >= l.seq)))} />
+                  Leg {l.seq} · {legLabel(l)} · {legRoute(l, board.data!.places)}{l.appointment_at ? ` · appt ${new Date(l.appointment_at).toLocaleString()}` : ""}
+                </label>
+              ))}
+            </div>
           ))}
-          {loads.data && !loads.data.loads.length && <li className="muted">No booked loads waiting for a truck.</li>}
-        </ul>
+          {board.data && !groups.length && <p className="muted">No legs waiting for a truck. Book a load, or import a delivery order.</p>}
+        </div>
         <div className="fields">
           <Field label="Driver"><Select name="driver_id" required empty="Choose…" options={(drivers.data?.drivers ?? []).map((d) => [d.id, `${d.name}${d.cdl_class ? ` (CDL ${d.cdl_class})` : ""}`])} /></Field>
           <Field label="Truck"><Select name="truck_id" required empty="Choose…" options={fitTrucks.map((t) => [t.id, `${t.truck_number} · ${human(t.kind)}`])} /></Field>
@@ -303,13 +316,14 @@ export function Dispatch() {
 
       <h3>Trips</h3>
       <table>
-        <thead><tr><th>Created</th><th>Status</th><th>Loads</th><th></th></tr></thead>
+        <thead><tr><th>Created</th><th>Status</th><th>Loads</th><th>Legs</th><th></th></tr></thead>
         <tbody>
           {trips.data?.trips.map((t) => (
             <tr key={t.id}>
               <td>{t.created_at?.slice(0, 16).replace("T", " ")}</td>
               <td>{human(t.status)}{t.is_dual_transaction && " · dual"}</td>
               <td>{t.load_ids?.length ?? 0}</td>
+              <td>{t.leg_ids?.length ?? 0}</td>
               <td className="actions">
                 {t.status === "ASSIGNED" && <button onClick={() => tripAction(t.id, "DISPATCHED")}>dispatch</button>}
                 {t.status === "DISPATCHED" && <button onClick={() => tripAction(t.id, "COMPLETED")}>complete</button>}
@@ -443,6 +457,7 @@ export function Fleet() {
           <Field label="Max payload (lbs)"><input name="max_payload_lbs" type="number" min="1" /></Field>
         </>}
       />
+      <PlacesSection />
       <h3>Live GPS</h3>
       {gps.error ? (
         <p className="muted small">GPS is not connected: {errorText(gps.error)}</p>

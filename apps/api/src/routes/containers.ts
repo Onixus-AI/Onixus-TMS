@@ -4,6 +4,7 @@ import { z } from "zod";
 import { containerNumberProblem, containerRisk, FINISHED, normalizeContainerNumber, RISK_LEVELS, streetTurnMatches, type GeoPoint } from "@onixus/core";
 import { HttpError, isoDate, mustGet, text, uuid, type Ctx } from "../http.js";
 import type { Load } from "./loads.js";
+import { legsOf } from "./legs.js";
 
 type Location = { id: string; lat: number | null; lng: number | null };
 
@@ -69,6 +70,10 @@ export function containerRoutes(ctx: Ctx) {
         store.update("loads", imp.id, { street_turn_status: "APPROVED", empty_returned_at: now, updated_at: now }),
         store.update("loads", exp.id, { street_turn_status: "APPROVED", container_number: imp.container_number, container_type: imp.container_type ?? null, updated_at: now }),
       ]);
+      // The import's empty no longer goes back to the port; the export's empty comes from the import's consignee instead.
+      for (const l of await legsOf(ctx, imp.id)) if (l.cargo === "EMPTY" && l.status === "PLANNED") await store.update("load_legs", l.id, { status: "CANCELED" }, { status: "PLANNED" });
+      const emptyOut = (await legsOf(ctx, exp.id)).find((l) => l.cargo === "EMPTY" && l.status === "PLANNED");
+      if (emptyOut && imp.delivery_location_id) await store.update("load_legs", emptyOut.id, { from_terminal_id: null, from_location_id: imp.delivery_location_id }, { status: "PLANNED" });
       return res.json({ import: i, export: e });
     }
     const clear = { is_street_turn: false, street_turn_pair_id: null, street_turn_status: null };

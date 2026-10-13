@@ -1,9 +1,11 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { crmProvider, emailProvider, fmcsa, llmProvider, providerStatus, storeFromEnv, StoreError, supabaseFiles, supabaseInvite, supabaseUser, trackingProvider, type Env, type Store } from "@onixus/providers";
+import { crmProvider, emailProvider, fmcsa, llmProvider, NotImplementedError, providerStatus, storeFromEnv, StoreError, supabaseFiles, supabaseInvite, supabaseUser, trackingProvider, type Env, type Store } from "@onixus/providers";
 import { HttpError, type Ctx } from "./http.js";
 import { authenticate, currentCaller, drivers, identityRoutes, platformOnly, roles, scopedFor } from "./auth.js";
 import { driverRoutes } from "./routes/driver.js";
+import { legRoutes } from "./routes/legs.js";
+import { orderRoutes } from "./routes/orders.js";
 import { loadRoutes } from "./routes/loads.js";
 import { fleetRoutes } from "./routes/fleet.js";
 import { containerRoutes, portWebhook } from "./routes/containers.js";
@@ -40,6 +42,11 @@ export function createApp(env: Env, deps: Deps = {}) {
     verifyUser: deps.verifyUser ?? (async (token) => (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY ? supabaseUser(env, token) : null)),
     inviteUser: deps.inviteUser ?? ((email, redirectTo) => supabaseInvite(env, email, redirectTo)),
     files: deps.files ?? (() => supabaseFiles(env)),
+    readOrder: deps.readOrder ?? (async (request) => {
+      const llm = llmProvider(env);
+      if (!llm.extractJson) throw new NotImplementedError(`Reading delivery orders with ${llm.name} (use Claude)`);
+      return llm.extractJson(request);
+    }),
   };
 
   const app = express();
@@ -74,7 +81,7 @@ export function createApp(env: Env, deps: Deps = {}) {
   // Platform only: Onixus's own mailbox, CRM and AI credit, and cross-company jobs.
   app.get("/providers", platformOnly, (_req, res) => res.json({ providers: providerStatus(env) }));
   app.use(["/email", "/crm", "/llm"], platformOnly);
-  app.use(["/terminals", "/fmcsa/recheck"], (req, res, next) => (req.method === "POST" ? platformOnly(req, res, next) : next()));
+  app.use("/fmcsa/recheck", platformOnly);
   app.use(platformAccountRoutes(ctx));
 
   app.post("/email/send", async (req, res) => {
@@ -107,7 +114,7 @@ export function createApp(env: Env, deps: Deps = {}) {
 
   // The office: owners and dispatchers (or the platform acting inside a company).
   app.use(roles("OWNER", "DISPATCHER"));
-  app.use(loadRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx));
+  app.use(loadRoutes(ctx), legRoutes(ctx), orderRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx));
 
   // Live positions of this company's trucks. The GPS server is shared, so
   // trackers no truck of this company claims are never shown.
