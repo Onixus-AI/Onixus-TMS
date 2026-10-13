@@ -2,7 +2,13 @@
 :{$PORT:8080} {
 	root * /srv
 	encode gzip
+	# Built assets have content hashes in their names: cache them for good.
 	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	# Everything else is index.html (or a file next to it): always revalidate,
+	# so a deploy reaches people on their next load instead of whenever the
+	# browser's guess about an old page expires.
+	@page not path /assets/*
+	header @page Cache-Control "no-cache"
 	try_files {path} /index.html
 	file_server
 }
