@@ -47,7 +47,7 @@ const quote = z.object({ customer_id: uuid.optional(), origin: text(), destinati
 const line = z.object({ code: text(30), description: text(), amount: z.number().min(-1_000_000).max(1_000_000) });
 const invoiceRequest = z.object({ accessorials: z.array(line).max(50).default([]), include_container_charges: z.boolean().default(true) });
 
-type Customer = { id: string; dot_number?: string | null; fmcsa_last_checked?: string | null };
+type Customer = { id: string; org_id?: string | null; dot_number?: string | null; fmcsa_last_checked?: string | null };
 type Tariff = z.infer<typeof tariff> & { id: string };
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -90,9 +90,6 @@ export function accountRoutes(ctx: Ctx) {
   r.get("/terminals", async (_req, res) => {
     res.json({ terminals: await ctx.store().list("port_terminals", {}, { order: "name", ascending: true, limit: 500 }) });
   });
-  r.post("/terminals", async (req, res) => {
-    res.status(201).json({ terminal: await ctx.store().insert("port_terminals", defined(terminal.parse(req.body))) });
-  });
 
   // ── FMCSA: is this broker or carrier allowed to operate? ──────────────────
   r.get("/fmcsa/carriers/:dot", async (req, res) => {
@@ -100,40 +97,10 @@ export function accountRoutes(ctx: Ctx) {
     res.json(await ctx.checkCarrier(dot));
   });
 
-  async function checkCustomer(c: Customer) {
-    if (!c.dot_number) throw new HttpError(400, "Customer has no DOT number");
-    const check = await ctx.checkCarrier(c.dot_number);
-    const now = ctx.now().toISOString();
-    await ctx.store().insert("fmcsa_snapshots", {
-      customer_id: c.id, dot_number: c.dot_number, snapshot: check.raw, operating_status: check.status,
-      safety_rating: (check.raw.safetyRating as string) ?? null, insurance_on_file: check.raw.bipdInsuranceOnFile != null ? Number(check.raw.bipdInsuranceOnFile) > 0 : null,
-    });
-    await ctx.store().update("customers", c.id, { compliance_status: check.status, fmcsa_last_checked: now });
-    return check;
-  }
-
   r.post("/customers/:id/fmcsa-check", async (req, res) => {
-    res.json(await checkCustomer(await mustGet<Customer>(ctx, "customers", req.params.id, "Customer")));
+    res.json(await checkCustomer(ctx, await mustGet<Customer>(ctx, "customers", req.params.id, "Customer")));
   });
 
-  /** Re-check every customer with a DOT number not checked in `older_than_days`. Call it daily from a scheduler. */
-  r.post("/fmcsa/recheck", async (req, res) => {
-    const { older_than_days, limit } = z.object({ older_than_days: z.number().int().min(0).max(365).default(7), limit: z.number().int().min(1).max(200).default(50) }).parse(req.body ?? {});
-    const cutoff = ctx.now().getTime() - older_than_days * 86_400_000;
-    const due = (await ctx.store().list<Customer>("customers", {}, { limit: 2000 }))
-      .filter((c) => c.dot_number && (!c.fmcsa_last_checked || Date.parse(c.fmcsa_last_checked) < cutoff))
-      .slice(0, limit);
-    const results = [];
-    for (const c of due) {
-      try {
-        const check = await checkCustomer(c);
-        results.push({ customer_id: c.id, status: check.status, reasons: check.reasons });
-      } catch (e) {
-        results.push({ customer_id: c.id, error: (e as Error).message });
-      }
-    }
-    res.json({ checked: results.length, results });
-  });
 
   // ── Rates ─────────────────────────────────────────────────────────────────
   r.get("/tariffs", async (_req, res) => {
@@ -186,5 +153,45 @@ export function accountRoutes(ctx: Ctx) {
     res.status(201).json({ invoice, load: moved });
   });
 
+  return r;
+}
+
+export async function checkCustomer(ctx: Ctx, c: Customer) {
+  if (!c.dot_number) throw new HttpError(400, "Customer has no DOT number");
+  const check = await ctx.checkCarrier(c.dot_number);
+  const now = ctx.now().toISOString();
+  await ctx.store().insert("fmcsa_snapshots", {
+    org_id: c.org_id ?? null, customer_id: c.id, dot_number: c.dot_number, snapshot: check.raw, operating_status: check.status,
+    safety_rating: (check.raw.safetyRating as string) ?? null, insurance_on_file: check.raw.bipdInsuranceOnFile != null ? Number(check.raw.bipdInsuranceOnFile) > 0 : null,
+  });
+  await ctx.store().update("customers", c.id, { compliance_status: check.status, fmcsa_last_checked: now });
+  return check;
+}
+
+/** Platform jobs: shared port terminals, and the daily FMCSA re-check across every company. */
+export function platformAccountRoutes(ctx: Ctx) {
+  const r = Router();
+  r.post("/terminals", async (req, res) => {
+    res.status(201).json({ terminal: await ctx.db().insert("port_terminals", defined(terminal.parse(req.body))) });
+  });
+
+  /** Re-check every customer with a DOT number not checked in `older_than_days`. Call it daily from a scheduler. */
+  r.post("/fmcsa/recheck", async (req, res) => {
+    const { older_than_days, limit } = z.object({ older_than_days: z.number().int().min(0).max(365).default(7), limit: z.number().int().min(1).max(200).default(50) }).parse(req.body ?? {});
+    const cutoff = ctx.now().getTime() - older_than_days * 86_400_000;
+    const due = (await ctx.db().list<Customer>("customers", {}, { limit: 2000 }))
+      .filter((c) => c.dot_number && (!c.fmcsa_last_checked || Date.parse(c.fmcsa_last_checked) < cutoff))
+      .slice(0, limit);
+    const results = [];
+    for (const c of due) {
+      try {
+        const check = await checkCustomer(ctx, c);
+        results.push({ customer_id: c.id, status: check.status, reasons: check.reasons });
+      } catch (e) {
+        results.push({ customer_id: c.id, error: (e as Error).message });
+      }
+    }
+    res.json({ checked: results.length, results });
+  });
   return r;
 }

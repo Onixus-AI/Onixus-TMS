@@ -7,10 +7,12 @@ import { createApp, type Deps } from "./app.js";
 
 const KEY = "test-key-0123456789abcdefghij";
 const NOW = new Date("2026-10-12T15:00:00Z");
-const auth = { authorization: `Bearer ${KEY}`, "content-type": "application/json" };
+const ORG = "00000000-0000-4000-8000-000000000001";
+// The platform key acting inside one test company.
+const auth = { authorization: `Bearer ${KEY}`, "content-type": "application/json", "x-org-id": ORG };
 
 async function withApi(fn: (call: Call, store: ReturnType<typeof memoryStore>) => Promise<void>, deps: Deps = {}, env: Record<string, string> = {}) {
-  const store = memoryStore();
+  const store = memoryStore({ organizations: [{ id: ORG, name: "Test Trucking" }] });
   const server = createApp({ TMS_API_KEY: KEY, ...env }, { store: () => store, now: () => NOW, ...deps }).listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call: Call = async (method, path, body, headers = auth) => {

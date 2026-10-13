@@ -5,6 +5,7 @@ import {
   FINISHED, LOAD_STATUSES, loadShapeProblems, normalizeContainerNumber, perDiem, type LoadFields, type LoadStatus,
 } from "@onixus/core";
 import { defined, HttpError, isoDate, money, mustGet, text, uuid, type Ctx } from "../http.js";
+import { listDocuments, recordDocument, uploadUrl } from "./documents.js";
 
 export type Load = LoadFields & {
   id: string;
@@ -149,6 +150,19 @@ export function loadRoutes(ctx: Ctx) {
     if (load.empty_returned_at) throw new HttpError(409, "The empty was already returned");
     const updated = await ctx.store().update<Load>("loads", load.id, { empty_returned_at: at ?? ctx.now().toISOString(), updated_at: ctx.now().toISOString() });
     res.json({ load: updated, charges: charges(updated!, ctx.now()) });
+  });
+
+  r.get("/loads/:id/documents", async (req, res) => {
+    const load = await mustGet<Load>(ctx, "loads", req.params.id, "Load");
+    res.json({ documents: await listDocuments(ctx, load) });
+  });
+  r.post("/loads/:id/documents/upload-url", async (req, res) => {
+    const load = await mustGet<Load>(ctx, "loads", req.params.id, "Load");
+    res.json(await uploadUrl(ctx, load, req.body));
+  });
+  r.post("/loads/:id/documents", async (req, res) => {
+    const load = await mustGet<Load>(ctx, "loads", req.params.id, "Load");
+    res.status(201).json(await recordDocument(ctx, load, req.body));
   });
 
   return r;
