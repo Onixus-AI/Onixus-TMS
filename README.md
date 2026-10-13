@@ -110,10 +110,11 @@ things to fix (for example every reason a trip can't be dispatched).
 
 ```bash
 ./scripts/init-supabase.sh  # link, push migrations, generate types
-./scripts/init-vercel.sh    # web app; set VITE_API_URL to the API's URL
+./scripts/init-vercel.sh    # web app on Vercel; set VITE_API_URL to the API's URL
 ```
 
 The API runs anywhere Docker runs (for example Railway); keep every secret there, never in `VITE_` variables.
+The web app can also run on Railway from `apps/web/Dockerfile` (Caddy serving the build); its `VITE_` variables are read at build time.
 
 ## Not built yet
 
