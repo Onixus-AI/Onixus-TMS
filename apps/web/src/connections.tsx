@@ -1,41 +1,46 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
 import {
   siClaude, siGmail, siGooglecalendar, siGoogledocs, siGoogledrive, siGooglegemini, siGooglemeet, siGooglesheets,
-  siHubspot, siMake, siN8n, siOpenrouter, siQuickbooks, siTraccar, siZapier, type SimpleIcon,
+  siHubspot, siMake, siN8n, siQuickbooks, siTraccar, siZapier, type SimpleIcon,
 } from "simple-icons";
 import { api } from "./api";
+import { OnixusLogo } from "./logo";
 import { Field, PageTitle, Problem, useAction, useGet } from "./trucking";
 
-// The company's own accounts: mailbox, CRM, books and GPS. Owners connect
-// and disconnect; everyone sees what is connected and can test it.
+// The company's own accounts: mailbox, Veltra, CRM, books, GPS, AI and the
+// rest. Owners connect and disconnect; everyone sees what is connected and
+// can test it.
 
-type Provider = { id: string; label: string; by: string | null; blurb: string; method: "oauth" | "fields" | "soon"; fields: { name: string; label: string; secret?: boolean; placeholder?: string; optional?: boolean; hint?: string }[]; ready: boolean; missing: string[] };
+type Provider = { id: string; label: string; by: string | null; blurb: string; method: "oauth" | "fields" | "link" | "builtin" | "soon"; fields: { name: string; label: string; secret?: boolean; placeholder?: string; optional?: boolean; hint?: string }[]; ready: boolean; missing: string[] };
 type Connection = { id: string; category: string; provider: string; account: string | null; status: "CONNECTED" | "ERROR"; last_error: string | null; connected_by: string | null; updated_at: string };
-type CategoryId = "email" | "crm" | "finance" | "tracking" | "ai" | "automation" | "chat" | "calendar" | "documents" | "reports";
+type CategoryId = "email" | "inbox" | "crm" | "finance" | "tracking" | "ai" | "automation" | "chat" | "calendar" | "documents" | "reports" | "social";
 export type Connections = { encryption: boolean; categories: { category: CategoryId; connection: Connection | null; providers: Provider[] }[] };
 
 const CATEGORY: Record<CategoryId, { title: string; what: string }> = {
   email: { title: "Email", what: "Customer emails and invoices go out from this mailbox. Without one, Onixus sends under your company's name." },
+  inbox: { title: "AI email employee", what: "Veltra works your inbox with Onixus. Linking uses the Veltra account signed in with your own email." },
   crm: { title: "CRM", what: "New customers are added to your CRM, with their billing contact." },
   finance: { title: "Finance", what: "Invoices go to your books with one click, line by line." },
   tracking: { title: "Tracking", what: "Live truck positions on Fleet. Put each truck's GPS id (vehicle id, name or number) on the truck." },
-  ai: { title: "AI model", what: "Your own key powers the assistant and email drafts. Without one, Onixus's AI answers." },
+  ai: { title: "AI model", what: "Onixus AI is included. Connect your own key to use your own model instead." },
   automation: { title: "Automation", what: "Loads created, moved, delivered and invoiced start your own workflows." },
   chat: { title: "Team chat", what: "The office's load and invoice updates, posted in a channel." },
   calendar: { title: "Calendar", what: "Terminal and customer appointments on your calendar, moved when they change." },
   documents: { title: "Documents", what: "A copy of every BOL, POD and delivery order uploaded on a load." },
   reports: { title: "Reports", what: "A live spreadsheet of every load event, for your own reports." },
+  social: { title: "Social", what: "Your company's pages, for hiring drivers and sharing news." },
 };
 // Brand logos from Simple Icons (CC0). Brands that asked to be left out of
 // it (OpenAI, Microsoft, Slack, Samsara, Motive) get a plain letter mark.
 const LOGO: Record<string, SimpleIcon> = {
   gmail: siGmail, hubspot: siHubspot, quickbooks: siQuickbooks, traccar: siTraccar,
-  anthropic: siClaude, gemini: siGooglegemini, openrouter: siOpenrouter, zapier: siZapier, make: siMake, n8n: siN8n,
+  anthropic: siClaude, gemini: siGooglegemini, zapier: siZapier, make: siMake, n8n: siN8n,
   "google-calendar": siGooglecalendar, "google-meet": siGooglemeet, "google-drive": siGoogledrive, "google-docs": siGoogledocs, "google-sheets": siGooglesheets,
 };
 const MARK: Record<string, { text: string; cls: string }> = {
   outlook: { text: "O", cls: "m-outlook" }, "outlook-calendar": { text: "O", cls: "m-outlook" }, "microsoft-teams": { text: "T", cls: "m-teams" },
   samsara: { text: "S", cls: "m-samsara" }, motive: { text: "M", cls: "m-motive" }, openai: { text: "AI", cls: "m-openai" }, slack: { text: "#", cls: "m-slack" },
+  linkedin: { text: "in", cls: "m-linkedin" },
 };
 
 let cached: Connections | null = null;
@@ -50,6 +55,8 @@ export function useConnections() {
 export const providerLabel = (data: Connections | null, id?: string | null) => data?.categories.flatMap((c) => c.providers).find((p) => p.id === id)?.label ?? id ?? "";
 
 function Mark({ id }: { id: string }) {
+  if (id === "onixus-ai")
+    return <span className="mark m-onixus" aria-hidden="true"><OnixusLogo className="" /></span>;
   const logo = LOGO[id];
   if (logo)
     return (
@@ -79,6 +86,10 @@ function ProviderTile({ p, current, owner, onChange }: { p: Provider; current: C
     const r = await api<{ url: string }>(`/connections/${p.id}/start`, { method: "POST" });
     window.location.assign(r.url);
   });
+  const link = () => action.run(async () => {
+    const r = await api<{ detail: string }>(`/connections/${p.id}/link`, { method: "POST" });
+    setNote({ ok: true, text: r.detail });
+  });
   const test = () => action.run(async () => {
     const r = await api<{ ok: boolean; detail: string }>(`/connections/${current!.category}/test`, { method: "POST" });
     setNote({ ok: r.ok, text: r.detail });
@@ -96,6 +107,8 @@ function ProviderTile({ p, current, owner, onChange }: { p: Provider; current: C
         </div>
         {mine ? (
           <span className={`chip ${current!.status === "ERROR" ? "s-red" : "s-mint"}`}><i />{current!.status === "ERROR" ? "Needs attention" : "Connected"}</span>
+        ) : p.method === "builtin" ? (
+          current ? <span className="chip s-muted">Included</span> : <span className="chip s-mint"><i />In use</span>
         ) : p.method === "soon" ? <span className="chip s-muted">Coming soon</span> : null}
       </div>
       <p className="small muted">{mine && current!.account ? <><span className="text">{current!.account}</span>{current!.connected_by ? ` · by ${current!.connected_by}` : ""}</> : p.blurb}</p>
@@ -116,7 +129,10 @@ function ProviderTile({ p, current, owner, onChange }: { p: Provider; current: C
           {!mine && owner && p.method === "oauth" && (p.ready
             ? <button className="primary" onClick={signIn} disabled={action.busy}>{current ? `Switch to ${p.label}` : `Sign in with ${p.label}`}</button>
             : <span className="muted small">Onixus is finishing {p.label} sign-in</span>)}
-          {!owner && !mine && p.method !== "soon" && <span className="muted small">An owner can connect this</span>}
+          {!mine && owner && p.method === "link" && (p.ready
+            ? <button className="primary" onClick={link} disabled={action.busy}>{action.busy ? "Linking…" : current ? `Switch to ${p.label}` : `Link ${p.label}`}</button>
+            : <span className="muted small">Onixus is finishing {p.label} setup</span>)}
+          {!owner && !mine && p.method !== "soon" && p.method !== "builtin" && <span className="muted small">An owner can connect this</span>}
         </div>
       )}
     </div>
@@ -127,7 +143,7 @@ export function ConnectionsPage({ owner, notice }: { owner: boolean; notice?: { 
   const { data: view, reload: refresh, error } = useConnections();
   return (
     <div className="stack page">
-      <PageTitle title="Connections" sub="Your own email, CRM, books, GPS, AI, automations, chat, calendar, Drive and Sheets. One account per category." />
+      <PageTitle title="Connections" sub="Your email, Veltra, CRM, books, GPS, AI, automations, chat, calendar, Drive, Sheets and LinkedIn. One account per category." />
       {notice && <p className={`panel small ${notice.ok ? "ok-text" : "error"}`}>{notice.text}</p>}
       <Problem error={error} />
       {view && !view.encryption && <p className="notice small">Onixus is finishing its secure storage for connections; connecting is paused until then.</p>}
@@ -135,7 +151,9 @@ export function ConnectionsPage({ owner, notice }: { owner: boolean; notice?: { 
         <section key={c.category} className="panel stack">
           <div className="panel-head">
             <div><h2>{CATEGORY[c.category].title}</h2><p className="muted small">{CATEGORY[c.category].what}</p></div>
-            {c.connection ? <span className="chip s-mint"><i />{providerLabel(view, c.connection.provider)}</span> : <span className="chip s-muted">Not connected</span>}
+            {c.connection ? <span className="chip s-mint"><i />{providerLabel(view, c.connection.provider)}</span>
+              : c.providers.some((p) => p.method === "builtin") ? <span className="chip s-mint"><i />{c.providers.find((p) => p.method === "builtin")!.label}</span>
+              : <span className="chip s-muted">Not connected</span>}
           </div>
           <div className="tiles">
             {c.providers.map((p) => <ProviderTile key={p.id} p={p} current={c.connection} owner={owner} onChange={refresh} />)}

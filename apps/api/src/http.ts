@@ -8,7 +8,7 @@ export type Member = { id: string; org_id: string; user_id: string; email: strin
 
 /** Who is calling: the platform (API key, optionally acting inside one organization) or a signed-in person. */
 export type Caller =
-  | { kind: "system"; orgId?: string }
+  | { kind: "system"; orgId?: string; /** Set for a company key (an Onixus product like Veltra): one company, no platform routes. */ keyId?: string }
   | { kind: "user"; user: AuthUser; member: Member | null };
 
 /** Everything a route needs, injectable so tests run without Supabase, FMCSA or Traccar. */
