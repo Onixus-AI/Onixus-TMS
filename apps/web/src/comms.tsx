@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { api } from "./api";
 import { Field, Problem, useAction, useGet, type Row } from "./trucking";
 
@@ -62,7 +63,8 @@ export function EmailComposer({ loadId, customerId, onClose, onSent }: { loadId:
     e.preventDefault();
     sending.run(() => api("/emails", { method: "POST", body: { to, subject, body, load_id: loadId } }));
   };
-  return (
+  // On the page itself: a glass panel (backdrop-filter) would otherwise trap a fixed overlay inside it.
+  return createPortal(
     <div className="modal-wrap" role="dialog" aria-modal="true" aria-label="Email the customer">
       <div className="scrim top" onClick={onClose} />
       <form className="modal panel stack" onSubmit={submit}>
@@ -88,7 +90,8 @@ export function EmailComposer({ loadId, customerId, onClose, onSent }: { loadId:
           <button type="submit" className="primary" disabled={sending.busy || (status ? !status.email.ready : false)}>{sending.busy ? "Sending…" : "Send"}</button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
