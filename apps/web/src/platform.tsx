@@ -2,6 +2,7 @@
 // platform key (TMS_API_KEY), not on a company account, so only Onixus staff
 // who hold that key can use them.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useGet } from "./trucking";
 import { apiBase, ApiError, getKey, platformApi as api, setKey, type ProviderStatus } from "./api";
 
 type Mail = { id: string; from: string; subject: string; snippet: string; receivedAt: string };
@@ -158,11 +159,36 @@ function Ai() {
   );
 }
 
-type PlatformTab = "overview" | "email" | "crm" | "ai";
+type PlatformTab = "overview" | "mcp" | "email" | "crm" | "ai";
+
+const MCP_TOOLS: [string, string][] = [
+  ["get_overview", "the dashboard: loads by stage, money running, moves, what needs a truck"],
+  ["search_loads", "open loads by text or status, with container clock risk"],
+  ["get_load", "one load by number or container: legs, clocks, extras, emails"],
+  ["draft_customer_email", "a customer email drafted from the load's facts"],
+  ["send_email", "send it under the company's name, logged on the load"],
+];
+
+/** How Onyx (or any MCP client) connects to this company's dispatcher. */
+function Mcp() {
+  const me = useGet<{ organization: { id: string; name: string } | null }>("/me");
+  return (
+    <div className="panel stack mcp">
+      <h2>Connect Onyx to this dispatcher</h2>
+      <p className="muted small">Onixus Dispatcher is an MCP server. Onyx connects to it next to Onyx Mail and Onyx CRM and works this company's loads with the same rules the office uses.</p>
+      <div className="stack tight small">
+        <div>Server URL <code>{apiBase}/mcp</code> (Streamable HTTP)</div>
+        <div>Header <code>Authorization: Bearer &lt;TMS_API_KEY&gt;</code></div>
+        <div>Header <code>X-Org-Id: {me.data?.organization?.id ?? "…"}</code></div>
+      </div>
+      <ul className="list compact small">{MCP_TOOLS.map(([name, what]) => <li key={name}><code>{name}</code> <span className="muted">{what}</span></li>)}</ul>
+    </div>
+  );
+}
 
 export function Platform() {
   const [tab, setTab] = useState<PlatformTab>("overview");
-  const tabs: [PlatformTab, string][] = [["overview", "Connections"], ["email", "Email"], ["crm", "CRM"], ["ai", "AI"]];
+  const tabs: [PlatformTab, string][] = [["overview", "Connections"], ["mcp", "Onyx (MCP)"], ["email", "Email"], ["crm", "CRM"], ["ai", "AI"]];
   return (
     <div className="stack">
       <nav className="subnav">
@@ -171,6 +197,7 @@ export function Platform() {
         ))}
       </nav>
       {tab === "overview" && <Overview />}
+      {tab === "mcp" && <Mcp />}
       {tab === "email" && <Email />}
       {tab === "crm" && <Crm />}
       {tab === "ai" && <Ai />}

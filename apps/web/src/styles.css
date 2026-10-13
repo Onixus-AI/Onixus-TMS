@@ -391,3 +391,29 @@ tbody tr:last-child td { border-bottom: none; }
 main { min-width: 0; }
 .drawer table { display: block; overflow-x: auto; }
 .cta { min-height: 100%; }
+
+/* ── Email, AI ─────────────────────────────────────────────────────────── */
+.modal-wrap { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; }
+.scrim.top { z-index: 0; }
+.modal { position: relative; z-index: 1; width: min(640px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: #0f172a; border-color: var(--line-strong); box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6); }
+.modal .close { width: 34px; height: 34px; padding: 0; }
+.actions.end { justify-content: flex-end; }
+.notice { padding: 10px 12px; border-radius: 12px; background: rgba(250, 178, 25, 0.1); border: 1px solid rgba(250, 178, 25, 0.3); color: #ffe0a0; }
+.ai-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; border-radius: 14px; background: linear-gradient(135deg, rgba(57, 135, 229, 0.12), rgba(142, 230, 201, 0.08)); border: 1px solid rgba(57, 135, 229, 0.3); }
+.ai-row select { flex: 1 1 170px; width: auto; }
+.ai-row input { flex: 2 1 200px; width: auto; }
+.ai-badge { color: var(--mint); font-size: 18px; padding: 0 4px; }
+.email-item { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; }
+.email-item summary { cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; }
+.email-item p { margin-top: 8px; }
+.invoice-email { padding: 6px 0; white-space: normal; }
+.ask { margin-top: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { font-size: 12px; padding: 5px 10px; }
+.answer { padding: 12px 14px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line); display: grid; gap: 6px; max-height: 240px; overflow-y: auto; }
+.ask-input { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: rgba(6, 10, 19, 0.6); }
+.ask-input input { border: none; background: none; padding: 9px 0; }
+.ask-input input:focus-visible { outline: none; }
+.ask-input:focus-within { border-color: var(--accent); }
+.ask-input .send { width: 36px; height: 36px; padding: 0; flex: none; background: linear-gradient(135deg, var(--mint), var(--accent)); color: #06121f; border: none; font-size: 16px; }
+.mcp code { background: var(--panel-2); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }

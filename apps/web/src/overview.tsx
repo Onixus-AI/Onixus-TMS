@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Me } from "./App";
 import { MovesChart, type Point } from "./chart";
+import { AskBox } from "./comms";
 import { useNav } from "./nav";
 import { Problem, usd, useGet } from "./trucking";
 
@@ -198,6 +199,7 @@ export function Overview({ me }: { me: Me }) {
             <button onClick={() => go("containers")}><span className="qi qi-blue">↺</span>Street turns</button>
             <button onClick={() => go("billing")}><span className="qi qi-violet">$</span>Create invoices</button>
           </div>
+          <AskBox />
         </div>
       </section>
     </div>

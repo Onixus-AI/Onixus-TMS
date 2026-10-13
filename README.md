@@ -60,6 +60,9 @@ consignee.
 | FMCSA | Checks a broker or carrier's authority, safety rating and insurance; daily re-check endpoint. |
 | Rates and billing | Lane tariffs (customer-specific first, fuel surcharge as a percent); invoices with line haul, accessorials, demurrage and per diem. |
 | Drayage extras | Chassis days, prepull, yard storage, waiting time, overweight and hazmat, worked out from each move's clocks and legs and priced from the company's rate card. Suggested on every invoice; the dispatcher can edit or drop them. |
+| Email | Email customers about a load (drafted by AI from the load's facts, or written by hand) and email invoices; sent under the company's name through the platform mailbox (Resend, Gmail or Outlook), replies to the dispatcher, logged on the load. |
+| AI assistant | "Ask" on the overview answers from the company's own loads and clocks; it has no tools and changes nothing. Capped per company per hour. |
+| MCP server | `POST /mcp` (Streamable HTTP) for Onyx or any MCP client, next to Onyx Mail and Onyx CRM: `get_overview`, `search_loads`, `get_load`, `draft_customer_email`, `send_email`. Same sign-in and rules as the office. |
 | Overview | The office dashboard: where loads are, money accruing on containers, moves per day, legs without a truck, and what needs attention. |
 | GPS | Live truck positions from Traccar. |
 
@@ -145,6 +148,9 @@ fix (for example every reason a trip can't be dispatched).
 | `POST /loads/:id/empty-returned` | Stops per diem |
 | `POST /loads/:id/invoice` | `{accessorials?, include_container_charges?}`; without `accessorials` the earned extras are billed |
 | `GET /overview?days=7\|30` | Dashboard numbers |
+| `GET /comms/status`, `GET/POST /emails`, `POST /invoices/:id/email` | Email: what's set up, the log, send |
+| `POST /assistant/ask`, `POST /assistant/draft-email` | AI answers and email drafts |
+| `POST /mcp` | MCP server (Bearer token, or TMS_API_KEY + X-Org-Id) |
 | `GET/PUT /rate-card`, `GET /loads/:id/extras` | Prices for extras (owners change them) and what a load has earned |
 | `GET/POST /drivers`, `/trucks`, `/trailers`; `PATCH …/:id` | Fleet (trailers include chassis) |
 | `POST /dispatch` | `{leg_ids or load_ids, driver_id, truck_id, trailer_id?}` |

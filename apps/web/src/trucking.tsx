@@ -5,6 +5,7 @@ import {
 } from "@onixus/core";
 import { api, ApiError, apiBase, uploadDocument } from "./api";
 import { useNav } from "./nav";
+import { EmailComposer, EmailLog } from "./comms";
 import { DoImport, legLabel, legRoute, LegsPanel, MoveFields, PlacesSection, splitPlace, type Leg, type Place } from "./drayage";
 
 // Dispatcher screens: loads, dispatch, containers, fleet, customers. Every
@@ -183,11 +184,13 @@ function NewLoad({ onDone }: { onDone: () => void }) {
 
 function LoadDetail({ id, onChange, onClose }: { id: string; onChange: () => void; onClose: () => void }) {
   const { data, error, reload } = useGet<{ load: Load; legs: Leg[]; places: Record<string, Place>; events: Row[]; extras: { code: string; description: string; amount: number }[]; charges: { demurrage: { days: number; amount: number }; perDiem: { days: number; amount: number }; risk: Risk } | null }>(`/loads/${id}`);
+  const [emailing, setEmailing] = useState(false);
+  const [emailed, setEmailed] = useState(0);
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && !emailing && onClose();
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [onClose]);
+  }, [onClose, emailing]);
   const action = useAction(() => {
     reload();
     onChange();
@@ -248,10 +251,13 @@ function LoadDetail({ id, onChange, onClose }: { id: string; onChange: () => voi
         {BILLABLE.includes(load.status) && (
           <button className="primary" disabled={action.busy} onClick={() => action.run(() => api(`/loads/${load.id}/invoice`, { method: "POST", body: {} }))}>create invoice</button>
         )}
+        <button onClick={() => setEmailing(true)}>✉ Email customer</button>
       </div>
       <Problem error={action.error} />
       <LegsPanel legs={legs} places={places} onChange={() => { reload(); onChange(); }} />
       <Documents scope="" loadId={load.id} onChange={() => { reload(); onChange(); }} />
+      <EmailLog loadId={load.id} version={emailed} />
+      {emailing && <EmailComposer loadId={load.id} customerId={load.customer_id} onClose={() => setEmailing(false)} onSent={() => setEmailed((n) => n + 1)} />}
       <strong className="small">History</strong>
       <ol className="timeline small muted">
         {events.map((e) => <li key={e.id}>{e.created_at?.slice(0, 16).replace("T", " ")} · {e.from_status ? `${human(e.from_status)} → ` : ""}{human(e.to_status)}{e.note ? ` · ${e.note}` : ""}</li>)}
@@ -575,6 +581,10 @@ function CustomerCard({ c, onChange }: { c: Row; onChange: () => void }) {
         {c.dot_number && <span className={`badge ${badge}`}>FMCSA {human(c.compliance_status ?? "pending")}</span>}
         <div className="muted small">{[c.dot_number && `DOT ${c.dot_number}`, c.mc_number && `MC ${c.mc_number}`, c.scac_code && `SCAC ${c.scac_code}`, c.payment_terms].filter(Boolean).join(" · ")}</div>
       </div>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); const email = new FormData(e.currentTarget).get("email"); action.run(() => api(`/customers/${c.id}`, { method: "PATCH", body: { email: String(email).trim() || null } })); }}>
+        <Field label="Email for updates and invoices"><input name="email" type="email" defaultValue={c.email ?? ""} placeholder="ops@customer.com" /></Field>
+        <button type="submit" disabled={action.busy}>Save</button>
+      </form>
       {c.dot_number && (
         <div className="actions">
           <button disabled={action.busy} onClick={() => action.run(async () => setCheck(await api(`/customers/${c.id}/fmcsa-check`, { method: "POST" })))}>Check FMCSA</button>
@@ -615,6 +625,7 @@ export function Customers() {
           <Field label="MC #"><input name="mc_number" inputMode="numeric" /></Field>
           <Field label="SCAC"><input name="scac_code" maxLength={4} /></Field>
           <Field label="Terms"><input name="payment_terms" placeholder="Net 30" /></Field>
+          <Field label="Email for updates and invoices"><input name="email" type="email" placeholder="ops@customer.com" /></Field>
         </div>
         <Problem error={action.error} />
         <button type="submit" className="primary" disabled={action.busy}>Add customer</button>

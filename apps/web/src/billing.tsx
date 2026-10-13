@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { EQUIPMENT_LABELS } from "@onixus/core";
 import { api } from "./api";
+import { useComms } from "./comms";
 import { Field, human, Problem, ref, usd, useAction, useGet, type Load, type Row } from "./trucking";
 
 // Billing: delivered loads with the extras they earned (chassis days,
@@ -61,6 +62,28 @@ function InvoiceBuilder({ id, onDone }: { id: string; onDone: () => void }) {
   );
 }
 
+function InvoiceEmail({ invoice, onDone }: { invoice: Row; onDone: () => void }) {
+  const status = useComms();
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const action = useAction(onDone);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    action.run(() => api(`/invoices/${invoice.id}/email`, { method: "POST", body: { ...(to.trim() && { to: to.trim() }), ...(note.trim() && { note: note.trim() }) } }));
+  };
+  return (
+    <form className="stack tight invoice-email" onSubmit={submit}>
+      {status && !status.email.ready && <p className="notice small">Sending email isn't set up yet{status.email.missing.length ? `: Onixus needs ${status.email.missing.join(", ")} on the API` : ""}.</p>}
+      <div className="fields">
+        <Field label="To (blank: the customer's email on file)"><input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="billing@customer.com" /></Field>
+        <Field label="Note (optional)"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Please find invoice … below." /></Field>
+        <button type="submit" className="primary" disabled={action.busy || (status ? !status.email.ready : false)}>{action.busy ? "Sending…" : "Send invoice"}</button>
+      </div>
+      <Problem error={action.error} />
+    </form>
+  );
+}
+
 function RateCard({ owner }: { owner: boolean }) {
   const { data, error, reload } = useGet<{ rate_card: Record<string, number> }>("/rate-card");
   const action = useAction(reload);
@@ -107,6 +130,7 @@ export function Billing({ owner }: { owner: boolean }) {
   const ready = useGet<{ loads: Load[] }>("/loads?status=DELIVERED,POD_RECEIVED");
   const invoices = useGet<{ invoices: Row[] }>("/invoices");
   const [open, setOpen] = useState<string | null>(null);
+  const [mailing, setMailing] = useState<string | null>(null);
   const refresh = () => {
     setOpen(null);
     ready.reload();
@@ -136,16 +160,20 @@ export function Billing({ owner }: { owner: boolean }) {
         <Problem error={invoices.error} />
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Invoice</th><th>Date</th><th>Lines</th><th>Status</th><th className="num">Amount</th></tr></thead>
+            <thead><tr><th>Invoice</th><th>Date</th><th>Lines</th><th>Status</th><th className="num">Amount</th><th></th></tr></thead>
             <tbody>
               {invoices.data?.invoices.map((i) => (
-                <tr key={i.id} className="static">
+                <Fragment key={i.id}>
+                <tr className="static">
                   <td>{i.invoice_number ?? i.id.slice(0, 8)}</td>
                   <td>{i.created_at?.slice(0, 10)}</td>
                   <td className="muted">{(i.accessorials ?? []).map((a: Line) => human(a.code)).join(", ")}</td>
                   <td><span className="chip">{human(i.status ?? "draft")}</span></td>
                   <td className="num"><strong>{usd(i.amount)}</strong></td>
+                  <td className="actions">{i.status !== "VOID" && <button onClick={() => setMailing(mailing === i.id ? null : i.id)}>{mailing === i.id ? "Close" : i.status === "DRAFT" ? "✉ Email" : "✉ Resend"}</button>}</td>
                 </tr>
+                {mailing === i.id && <tr className="static"><td colSpan={6}><InvoiceEmail invoice={i} onDone={() => { setMailing(null); invoices.reload(); }} /></td></tr>}
+                </Fragment>
               ))}
             </tbody>
           </table>
