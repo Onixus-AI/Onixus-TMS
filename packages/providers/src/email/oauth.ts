@@ -18,19 +18,24 @@ export class RefreshTokenAuth {
     private readonly tokenUrl: string,
     private readonly params: Record<string, string>,
     private refreshToken: string,
+    /** Basic auth with client_id:client_secret instead of body fields (Intuit), and a hook to keep a rotated refresh token. */
+    private readonly opts: { basic?: boolean; onRotate?: (refreshToken: string) => void } = {},
   ) {}
 
   async token(): Promise<string> {
     if (this.accessToken && Date.now() < this.expiresAt - 60_000) return this.accessToken;
-    const body = new URLSearchParams({ ...this.params, grant_type: "refresh_token", refresh_token: this.refreshToken });
-    const t = await fetchJson<TokenResponse>(
-      this.tokenUrl,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body },
-      (status, text) => new ProviderError(`${this.provider} sign-in`, status, text),
-    );
+    const { client_id, client_secret, ...rest } = this.params;
+    const basic = this.opts.basic && client_id && client_secret;
+    const body = new URLSearchParams({ ...(basic ? rest : this.params), grant_type: "refresh_token", refresh_token: this.refreshToken });
+    const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" };
+    if (basic) headers.Authorization = `Basic ${Buffer.from(`${client_id}:${client_secret}`).toString("base64")}`;
+    const t = await fetchJson<TokenResponse>(this.tokenUrl, { method: "POST", headers, body }, (status, text) => new ProviderError(`${this.provider} sign-in`, status, text));
     this.accessToken = t.access_token;
     this.expiresAt = Date.now() + t.expires_in * 1000;
-    if (t.refresh_token) this.refreshToken = t.refresh_token;
+    if (t.refresh_token && t.refresh_token !== this.refreshToken) {
+      this.refreshToken = t.refresh_token;
+      this.opts.onRotate?.(t.refresh_token);
+    }
     return this.accessToken;
   }
 }

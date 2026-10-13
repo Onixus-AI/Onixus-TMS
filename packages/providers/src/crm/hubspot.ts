@@ -4,7 +4,7 @@ import { ProviderError, type CrmCompany, type CrmProvider } from "../types.js";
 // HubSpot CRM v3 with a private-app access token (Settings → Integrations →
 // Private apps; scopes crm.objects.companies.read/write, crm.objects.contacts.write).
 export const HUBSPOT_VARS = ["HUBSPOT_ACCESS_TOKEN"] as const;
-const API = "https://api.hubapi.com/crm/v3/objects";
+const API_DEFAULT = "https://api.hubapi.com/crm/v3/objects";
 // Customer type (SHIPPER, BROKER, …) is stored in a custom company property;
 // create it in HubSpot or change the name here.
 const TYPE_PROPERTY = "onixus_customer_type";
@@ -20,6 +20,7 @@ const toCompany = (c: HubCompany): CrmCompany => ({
 
 export function hubspot(env: Env): CrmProvider {
   const v = requireVars(env, "HubSpot", [...HUBSPOT_VARS]);
+  const API = env.HUBSPOT_API_URL?.trim() || API_DEFAULT;
   const call = <T>(path: string, init: RequestInit = {}) =>
     fetchJson<T>(
       `${API}${path}`,

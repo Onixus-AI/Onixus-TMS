@@ -4,7 +4,7 @@ import { headerSafe, RefreshTokenAuth } from "./oauth.js";
 import { fromWithName } from "./resend.js";
 
 export const GMAIL_VARS = ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "GMAIL_SENDER"] as const;
-const API = "https://gmail.googleapis.com/gmail/v1/users/me";
+const API_DEFAULT = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /** RFC 2822 message, base64url-encoded as the Gmail API requires. */
 export function gmailRaw(from: string, m: SendEmail): string {
@@ -31,14 +31,16 @@ type GmailMessage = {
   payload: { headers: { name: string; value: string }[] };
 };
 
-export function gmail(env: Env): EmailProvider {
+export function gmail(env: Env, opts: { onRotate?: (refreshToken: string) => void } = {}): EmailProvider {
   const v = requireVars(env, "Gmail", [...GMAIL_VARS]);
   const auth = new RefreshTokenAuth(
     "Gmail",
-    "https://oauth2.googleapis.com/token",
+    env.GOOGLE_TOKEN_URL?.trim() || "https://oauth2.googleapis.com/token",
     { client_id: v.GMAIL_CLIENT_ID, client_secret: v.GMAIL_CLIENT_SECRET },
     v.GMAIL_REFRESH_TOKEN,
+    opts,
   );
+  const API = env.GMAIL_API_URL?.trim() || API_DEFAULT;
   const call = async <T>(path: string, init: RequestInit = {}) =>
     fetchJson<T>(
       `${API}${path}`,

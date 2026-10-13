@@ -13,6 +13,7 @@ import { accountRoutes, platformAccountRoutes } from "./routes/accounts.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { commsRoutes } from "./routes/comms.js";
 import { mcpRoutes } from "./routes/mcp.js";
+import { connected, connectionRoutes, oauthCallback } from "./routes/connections.js";
 
 // One API for every integration. Each route resolves the provider chosen in
 // the environment at call time, so switching Gmail → Outlook or Claude →
@@ -64,7 +65,7 @@ export function createApp(env: Env, deps: Deps = {}) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Headers", "authorization, content-type, x-org-id");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     }
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
@@ -73,6 +74,8 @@ export function createApp(env: Env, deps: Deps = {}) {
   app.get("/health", (_req, res) => res.json({ ok: true }));
   // Signed by the sender instead of the API key (see routes/containers.ts).
   app.post("/webhooks/port", portWebhook(ctx));
+  // A provider's sign-in sends the browser back here; the signed state identifies the company.
+  app.get("/connections/oauth/callback", oauthCallback(ctx));
 
   // Everything below needs a signed-in person or the platform API key (see auth.ts).
   app.use(authenticate(ctx, apiKey));
@@ -119,14 +122,17 @@ export function createApp(env: Env, deps: Deps = {}) {
 
   // The office: owners and dispatchers (or the platform acting inside a company).
   app.use(roles("OWNER", "DISPATCHER"));
-  app.use(loadRoutes(ctx), legRoutes(ctx), orderRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx), overviewRoutes(ctx), commsRoutes(ctx), mcpRoutes(ctx));
+  app.use(loadRoutes(ctx), legRoutes(ctx), orderRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx), overviewRoutes(ctx), commsRoutes(ctx), mcpRoutes(ctx), connectionRoutes(ctx));
 
   // Live positions of this company's trucks. The GPS server is shared, so
   // trackers no truck of this company claims are never shown.
+  // The company's own GPS (Samsara, Motive, its Traccar) shows all its vehicles.
   app.get("/tracking", async (_req, res) => {
-    const [positions, trucks] = await Promise.all([ctx.tracking().positions(), ctx.store().list("trucks", {}, { limit: 1000 })]);
+    const own = await connected(ctx, "tracking");
+    const [positions, trucks] = await Promise.all([(own ?? ctx.tracking()).positions(), ctx.store().list("trucks", {}, { limit: 1000 })]);
     const byDevice = new Map(trucks.filter((t) => t.tracking_device_id).map((t) => [t.tracking_device_id as string, t]));
-    res.json({ vehicles: positions.filter((p) => byDevice.has(p.deviceId)).map((p) => ({ ...p, truck: byDevice.get(p.deviceId) })) });
+    const shown = own ? positions : positions.filter((p) => byDevice.has(p.deviceId));
+    res.json({ source: own ? "connected" : "shared", vehicles: shown.map((p) => ({ ...p, truck: byDevice.get(p.deviceId) ?? null })) });
   });
 
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));
