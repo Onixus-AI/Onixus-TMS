@@ -2,6 +2,7 @@
 // platform key (TMS_API_KEY), not on a company account, so only Onixus staff
 // who hold that key can use them.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useNav } from "./nav";
 import { useGet } from "./trucking";
 import { apiBase, ApiError, getKey, platformApi as api, setKey, type ProviderStatus } from "./api";
 
@@ -11,12 +12,12 @@ type Company = { id: string; name: string; domain?: string; type?: string };
 const LABELS: Record<string, string> = { email: "Email", crm: "CRM", llm: "AI model", database: "Database", tracking: "GPS tracking" };
 
 function errorText(e: unknown): string {
-  if (e instanceof ApiError && e.status === 401) return "The platform key was rejected. Enter it again under Connections.";
+  if (e instanceof ApiError && e.status === 401) return "The platform key was rejected. Enter it again under Platform key.";
   if (e instanceof TypeError) return `Cannot reach the API at ${apiBase}. Is it running?`;
   return e instanceof Error ? e.message : String(e);
 }
 
-function Connections({ onSaved }: { onSaved: () => void }) {
+function PlatformKey({ onSaved }: { onSaved: () => void }) {
   const [key, setValue] = useState(getKey());
   return (
     <form
@@ -46,7 +47,7 @@ function Overview() {
   useEffect(load, [load]);
   return (
     <>
-      <Connections onSaved={load} />
+      <PlatformKey onSaved={load} />
       {error && <p className="error">{error}</p>}
       <div className="grid">
         {providers?.map((p) => (
@@ -175,7 +176,7 @@ function Mcp() {
   return (
     <div className="panel stack mcp">
       <h2>Connect Onyx to this dispatcher</h2>
-      <p className="muted small">Onixus Dispatcher is an MCP server. Onyx connects to it next to Onyx Mail and Onyx CRM and works this company's loads with the same rules the office uses.</p>
+      <p className="muted small">Onixus Dispatcher is an MCP server. Onyx connects to it next to Veltra and Onyx CRM and works this company's loads with the same rules the office uses.</p>
       <div className="stack tight small">
         <div>Server URL <code>{apiBase}/mcp</code> (Streamable HTTP)</div>
         <div>Header <code>Authorization: Bearer &lt;TMS_API_KEY&gt;</code></div>
@@ -187,8 +188,22 @@ function Mcp() {
 }
 
 export function Platform() {
+  const { go } = useNav();
+  const [staff, setStaff] = useState(Boolean(getKey()));
   const [tab, setTab] = useState<PlatformTab>("overview");
-  const tabs: [PlatformTab, string][] = [["overview", "Connections"], ["mcp", "Onyx (MCP)"], ["email", "Email"], ["crm", "CRM"], ["ai", "AI"]];
+  const tabs: [PlatformTab, string][] = [["overview", "Platform key"], ["mcp", "Onyx (MCP)"], ["email", "Onixus mailbox"], ["crm", "Onixus CRM"], ["ai", "AI"]];
+  // Company owners land here looking for email: send them to Connections, and only show staff tools once the platform key is entered.
+  if (!staff)
+    return (
+      <div className="stack page">
+        <div className="panel stack">
+          <h2>Onixus staff tools</h2>
+          <p className="muted small">This page runs on Onixus's platform key, for Onixus staff. Your company's own email, CRM, books and GPS are under Connections.</p>
+          <div className="actions"><button className="primary" onClick={() => go("connections")}>Open Connections</button></div>
+        </div>
+        <PlatformKey onSaved={() => setStaff(Boolean(getKey()))} />
+      </div>
+    );
   return (
     <div className="stack">
       <nav className="subnav">

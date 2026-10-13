@@ -10,7 +10,7 @@ import { charges, type Load } from "./loads.js";
 import { extrasFor, overviewData } from "./overview.js";
 
 // Onixus Dispatcher as an MCP server, for Onyx (or any MCP client) to work
-// alongside Onyx Mail and Onyx CRM. It sits behind the same sign-in as the
+// alongside Veltra and Onyx CRM. It sits behind the same sign-in as the
 // office: a dispatcher's or owner's token, or the platform key with
 // X-Org-Id, so every tool sees one company's data and nothing else. The
 // tools run the same code as the office screens, with the same rules.

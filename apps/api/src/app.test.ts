@@ -38,8 +38,9 @@ test("providers are chosen by environment, aliases included", () => {
   assert.equal(selected("email", { EMAIL_PROVIDER: "Outlook" }), "microsoft");
   assert.equal(selected("llm", { LLM_PROVIDER: "openai" }), "openai");
   assert.equal(selected("llm", { LLM_PROVIDER: "onyx" }), "onyx");
+  assert.equal(selected("email", { EMAIL_PROVIDER: "onyx" }), "veltra", "the old name for Veltra still works");
   assert.equal(selected("crm", { CRM_PROVIDER: "hubspot" }), "hubspot");
-  assert.throws(() => selected("email", { EMAIL_PROVIDER: "yahoo" }), /gmail, microsoft, resend, onyx/);
+  assert.throws(() => selected("email", { EMAIL_PROVIDER: "yahoo" }), /gmail, microsoft, resend, veltra/);
 });
 
 test("status names exactly the missing credentials", () => {
@@ -49,11 +50,11 @@ test("status names exactly the missing credentials", () => {
   assert.equal(s.find((p) => p.capability === "llm")!.configured, true);
 });
 
-test("Onyx Mail and Onyx CRM answer 501, never a fake success", async () => {
-  await withServer({ EMAIL_PROVIDER: "onyx", CRM_PROVIDER: "onyx" }, async (url) => {
+test("Veltra and Onyx CRM answer 501, never a fake success", async () => {
+  await withServer({ EMAIL_PROVIDER: "veltra", CRM_PROVIDER: "onyx" }, async (url) => {
     const r = await fetch(`${url}/email/send`, { method: "POST", headers: auth, body: JSON.stringify({ to: "a@b.co", subject: "s", html: "<p>x</p>" }) });
     assert.equal(r.status, 501);
-    assert.match((await r.json()).error, /Onyx Mail is coming soon/);
+    assert.match((await r.json()).error, /Veltra is coming soon/);
     assert.equal((await fetch(`${url}/crm/companies?q=acme`, { headers: auth })).status, 501);
     const status = await (await fetch(`${url}/providers`, { headers: auth })).json();
     assert.equal(status.providers.find((p: { capability: string }) => p.capability === "email").available, false);
@@ -69,7 +70,7 @@ test("an unconfigured provider answers 503 naming what to set", async () => {
 });
 
 test("bad input is a 400, not a provider call", async () => {
-  await withServer({ EMAIL_PROVIDER: "onyx" }, async (url) => {
+  await withServer({ EMAIL_PROVIDER: "veltra" }, async (url) => {
     const r = await fetch(`${url}/email/send`, { method: "POST", headers: auth, body: JSON.stringify({ to: "not-an-email", subject: "", html: "" }) });
     assert.equal(r.status, 400);
   });
