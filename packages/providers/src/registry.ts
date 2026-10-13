@@ -15,13 +15,13 @@ type Capability = ProviderStatus["capability"];
 type Entry<T> = { vars: readonly string[]; make?: (env: Env) => T; label: string };
 
 // Which providers each capability supports. An entry without `make` is
-// planned (Onyx Mail, Onyx CRM, Samsara, Motive): selectable, reported as "coming soon",
+// planned (Veltra, Onyx CRM, Samsara, Motive): selectable, reported as "coming soon",
 // and every call answers 501 instead of pretending to succeed.
 export const EMAIL_PROVIDERS: Record<string, Entry<EmailProvider>> = {
   gmail: { label: "Gmail", vars: GMAIL_VARS, make: gmail },
   microsoft: { label: "Microsoft 365 / Outlook", vars: MICROSOFT_VARS, make: microsoft },
   resend: { label: "Resend", vars: RESEND_VARS, make: resend },
-  onyx: { label: "Onyx Mail", vars: [] },
+  veltra: { label: "Veltra", vars: [] },
 };
 export const CRM_PROVIDERS: Record<string, Entry<CrmProvider>> = {
   hubspot: { label: "HubSpot", vars: HUBSPOT_VARS, make: hubspot },
@@ -57,7 +57,8 @@ const TABLES: Record<Capability, { env: string; fallback: string; table: Record<
 export function selected(capability: Capability, env: Env): string {
   const t = TABLES[capability];
   const raw = (env[t.env] ?? t.fallback).trim().toLowerCase();
-  const key = ALIASES[raw] ?? raw;
+  // Veltra was called Onyx Mail: an EMAIL_PROVIDER=onyx set before the rename keeps working.
+  const key = capability === "email" && raw === "onyx" ? "veltra" : ALIASES[raw] ?? raw;
   if (!t.table[key]) throw new Error(`${t.env}=${raw} is not supported; choose one of: ${Object.keys(t.table).join(", ")}`);
   return key;
 }

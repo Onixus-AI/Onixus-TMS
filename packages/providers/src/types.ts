@@ -99,7 +99,7 @@ export interface TrackingProvider {
   positions(): Promise<VehiclePosition[]>;
 }
 
-/** Thrown for a provider that is planned but not built yet (Onyx Mail, Onyx CRM, Samsara, Motive). */
+/** Thrown for a provider that is planned but not built yet (Veltra, Onyx CRM, Samsara, Motive). */
 export class NotImplementedError extends Error {
   readonly status = 501;
   constructor(what: string) {

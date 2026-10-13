@@ -62,8 +62,8 @@ consignee.
 | Drayage extras | Chassis days, prepull, yard storage, waiting time, overweight and hazmat, worked out from each move's clocks and legs and priced from the company's rate card. Suggested on every invoice; the dispatcher can edit or drop them. |
 | Email | Email customers about a load (drafted by AI from the load's facts, or written by hand) and email invoices; sent under the company's name through the platform mailbox (Resend, Gmail or Outlook), replies to the dispatcher, logged on the load. |
 | AI assistant | "Ask" on the overview answers from the company's own loads and clocks; it has no tools and changes nothing. Capped per company per hour. |
-| Connections | Each company connects its own accounts on the Connections page: email (Gmail, Outlook; Onyx Mail soon), CRM (HubSpot; Veltra CRM soon), finance (QuickBooks Online; VeltraFi soon) and tracking (Samsara, Motive, Traccar). Credentials are sealed with AES-256-GCM; email then goes out from the company's mailbox, new customers go to its CRM, invoices go to QuickBooks with one click, and Fleet shows its own trucks. |
-| MCP server | `POST /mcp` (Streamable HTTP) for Onyx or any MCP client, next to Onyx Mail and Onyx CRM: `get_overview`, `search_loads`, `get_load`, `draft_customer_email`, `send_email`. Same sign-in and rules as the office. |
+| Connections | Each company connects its own accounts on the Connections page: email (Gmail, Outlook; Veltra soon), CRM (HubSpot; Veltra CRM soon), finance (QuickBooks Online; VeltraFi soon) and tracking (Samsara, Motive, Traccar). Credentials are sealed with AES-256-GCM; email then goes out from the company's mailbox, new customers go to its CRM, invoices go to QuickBooks with one click, and Fleet shows its own trucks. |
+| MCP server | `POST /mcp` (Streamable HTTP) for Onyx or any MCP client, next to Veltra and Onyx CRM: `get_overview`, `search_loads`, `get_load`, `draft_customer_email`, `send_email`. Same sign-in and rules as the office. |
 | Overview | The office dashboard: where loads are, money accruing on containers, moves per day, legs without a truck, and what needs attention. |
 | GPS | Live truck positions from Traccar. |
 
@@ -87,7 +87,7 @@ change, never a code change.
 
 | Capability | Variable | Options |
 |---|---|---|
-| Email | `EMAIL_PROVIDER` | `gmail`, `microsoft` (Outlook.com, Outlook and Microsoft 365; alias `outlook`), `onyx` (Onyx Mail, coming soon) |
+| Email | `EMAIL_PROVIDER` | `gmail`, `microsoft` (Outlook.com, Outlook and Microsoft 365; alias `outlook`), `veltra` (Veltra, coming soon) |
 | CRM | `CRM_PROVIDER` | `hubspot`, `onyx` (Onyx CRM, coming soon) |
 | AI model | `LLM_PROVIDER` | `claude` (default `claude-opus-5-5`), `openai`, `onyx` (OpenAI-compatible endpoint), `openrouter` (one key, many models; default `google/gemini-2.5-flash`, low cost) |
 | Database | `DATABASE_PROVIDER` | `supabase` |
@@ -190,6 +190,6 @@ The web app can also run on Railway from `apps/web/Dockerfile` (Caddy serving th
 - Scheduling the daily FMCSA re-check: point any scheduler (Railway cron, Supabase `pg_cron` + `pg_net`, n8n) at `POST /fmcsa/recheck`.
 - An eModal or terminal connector that calls the port webhook.
 - Documents (POD, rate confirmations), driver settlements, IFTA.
-- Samsara and Motive GPS; Onyx Mail and Onyx CRM.
+- Samsara and Motive GPS; Veltra and Onyx CRM.
 - Per-organization RLS policies, for when the web app reads Supabase directly
 - MCP endpoints for agents

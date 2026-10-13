@@ -175,7 +175,7 @@ function Mcp() {
   return (
     <div className="panel stack mcp">
       <h2>Connect Onyx to this dispatcher</h2>
-      <p className="muted small">Onixus Dispatcher is an MCP server. Onyx connects to it next to Onyx Mail and Onyx CRM and works this company's loads with the same rules the office uses.</p>
+      <p className="muted small">Onixus Dispatcher is an MCP server. Onyx connects to it next to Veltra and Onyx CRM and works this company's loads with the same rules the office uses.</p>
       <div className="stack tight small">
         <div>Server URL <code>{apiBase}/mcp</code> (Streamable HTTP)</div>
         <div>Header <code>Authorization: Bearer &lt;TMS_API_KEY&gt;</code></div>
