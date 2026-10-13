@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AuthUser, CarrierCheck, Env, FileStore, Store, TrackingProvider } from "@onixus/providers";
+import type { AuthUser, CarrierCheck, Env, Extraction, FileStore, Store, TrackingProvider } from "@onixus/providers";
 
 export const ROLES = ["OWNER", "DISPATCHER", "DRIVER"] as const;
 export type Role = (typeof ROLES)[number];
@@ -25,6 +25,8 @@ export type Ctx = {
   verifyUser: (token: string) => Promise<AuthUser | null>;
   inviteUser: (email: string, redirectTo?: string) => Promise<"sent" | "existing_user">;
   files: () => FileStore;
+  /** Read a delivery order (file and/or text) into JSON with the AI model. */
+  readOrder: (request: Extraction) => Promise<unknown>;
 };
 
 /** An error with an HTTP status and, optionally, the list of things to fix. */

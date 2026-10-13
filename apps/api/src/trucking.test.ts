@@ -37,14 +37,15 @@ async function setup(call: Call) {
   const tractor = (await call("POST", "/trucks", { truck_number: "T-1", kind: "TRACTOR" })).body.truck;
   const box = (await call("POST", "/trucks", { truck_number: "B-1", kind: "BOX_TRUCK", gvwr_lbs: 16000, max_payload_lbs: 6000 })).body.truck;
   const chassis = (await call("POST", "/trailers", { unit_number: "CH-1", kind: "CHASSIS", size: "20/40" })).body.trailer;
-  return { customer, line, port, dc, exporter, driver, tractor, box, chassis };
+  const terminal = (await call("POST", "/terminals", { name: "APM Terminals Elizabeth", code: "APM", lat: 40.684, lng: -74.149 })).body.terminal;
+  return { customer, line, port, dc, exporter, driver, tractor, box, chassis, terminal };
 }
 
 test("an import container goes from booking to invoice, with its clocks", async () => {
   await withApi(async (call) => {
     const s = await setup(call);
     const created = await call("POST", "/loads", {
-      customer_id: s.customer.id, steamship_line_id: s.line.id, pickup_location_id: s.port.id, delivery_location_id: s.dc.id,
+      customer_id: s.customer.id, steamship_line_id: s.line.id, terminal_id: s.terminal.id, delivery_location_id: s.dc.id,
       rate: 650, direction: "IMPORT", container_number: "csqu 305438-3", container_size: "40", last_free_day: "2026-10-10",
     });
     assert.equal(created.status, 201);
@@ -61,16 +62,29 @@ test("an import container goes from booking to invoice, with its clocks", async 
     assert.equal(trip.status, 201, JSON.stringify(trip.body));
     assert.equal((await call("GET", `/drivers?status=ON_TRIP`)).body.drivers.length, 1);
 
+    // A live unload is two legs on one trip: terminal → consignee, then the empty back.
     const tripId = trip.body.trip.id;
+    const [pull, empty] = trip.body.legs;
+    assert.deepEqual([pull.cargo, pull.from_terminal_id, pull.to_location_id, pull.live], ["LOADED", s.terminal.id, s.dc.id, true]);
+    assert.deepEqual([empty.cargo, empty.to_terminal_id], ["EMPTY", s.terminal.id]);
+    assert.equal((await call("POST", `/loads/${load.id}/status`, { status: "PICKED_UP" })).status, 409, "road statuses come from the legs");
+    assert.equal((await call("POST", `/legs/${pull.id}/advance`)).status, 409, "dispatch the trip first");
     assert.equal((await call("POST", `/trips/${tripId}/status`, { status: "DISPATCHED" })).status, 200);
-    for (const st of ["AT_PICKUP", "PICKED_UP", "AT_DELIVERY", "DELIVERED"]) {
-      const r = await call("POST", `/loads/${load.id}/status`, { status: st });
-      assert.equal(r.status, 200, `${st}: ${JSON.stringify(r.body)}`);
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const r = await call("POST", `/legs/${pull.id}/advance`);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      seen.push(r.body.load.status);
     }
+    assert.deepEqual(seen, ["AT_PICKUP", "PICKED_UP", "AT_DELIVERY", "DELIVERED"]);
     const detail = (await call("GET", `/loads/${load.id}`)).body;
-    assert.ok(detail.load.outgated_at, "picking up an import out-gates it");
+    assert.ok(detail.load.outgated_at, "leaving the terminal out-gates the import");
+    assert.ok(!detail.load.empty_returned_at, "the empty is still out");
     assert.equal(detail.charges.demurrage.days, 2);
-    assert.equal(detail.events.length, 8, "created, booked, assigned, dispatched, at pickup, picked up, at delivery, delivered");
+    assert.equal(detail.legs.length, 2);
+    assert.equal((await call("POST", `/trips/${tripId}/status`, { status: "COMPLETED" })).status, 409, "the empty still has to go back");
+    for (let i = 0; i < 4; i++) assert.equal((await call("POST", `/legs/${empty.id}/advance`)).status, 200);
+    assert.ok((await call("GET", `/loads/${load.id}`)).body.load.empty_returned_at, "returning the empty stops per diem");
 
     assert.equal((await call("POST", `/trips/${tripId}/status`, { status: "COMPLETED" })).status, 200);
     assert.equal((await call("GET", `/trucks?status=AVAILABLE`)).body.trucks.length, 2, "trip completion frees the truck");
@@ -87,8 +101,8 @@ test("dispatch refuses the wrong equipment and says why", async () => {
   await withApi(async (call) => {
     const s = await setup(call);
     const base = { customer_id: s.customer.id, pickup_location_id: s.port.id, delivery_location_id: s.dc.id, rate: 400 };
-    const container = (await call("POST", "/loads", { ...base, direction: "IMPORT", container_number: "CSQU3054383", container_size: "40" })).body.load;
-    await call("POST", `/loads/${container.id}/status`, { status: "BOOKED" });
+    const container = (await call("POST", "/loads", { ...base, pickup_location_id: null, terminal_id: s.terminal.id, direction: "IMPORT", container_number: "CSQU3054383", container_size: "40" })).body.load;
+    assert.equal((await call("POST", `/loads/${container.id}/status`, { status: "BOOKED" })).status, 200);
     const wrong = await call("POST", "/dispatch", { load_ids: [container.id], driver_id: s.driver.id, truck_id: s.box.id });
     assert.equal(wrong.status, 422);
     assert.ok(wrong.body.problems.some((p: string) => /needs a tractor/.test(p)));
@@ -116,7 +130,7 @@ test("load rules: container fields stay on containers; booking needs the facts; 
     const flatbed = (await call("POST", "/loads", { equipment_type: "FLATBED", commodity: "Steel coils", securement: "chains" })).body.load;
     const booking = await call("POST", `/loads/${flatbed.id}/status`, { status: "BOOKED" });
     assert.equal(booking.status, 422);
-    assert.deepEqual(booking.body.problems, ["Missing customer, pickup location, delivery location, rate, weight"]);
+    assert.deepEqual(booking.body.problems, ["Missing customer, rate, weight", "To plan the move, add: pickup location, delivery location"]);
     assert.equal((await call("POST", `/loads/${flatbed.id}/status`, { status: "DELIVERED" })).status, 409);
     assert.equal((await call("POST", `/loads/${flatbed.id}/status`, { status: "ASSIGNED" })).status, 409, "assignment goes through dispatch");
   });

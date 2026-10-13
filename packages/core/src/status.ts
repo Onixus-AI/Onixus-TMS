@@ -1,5 +1,6 @@
 import { CONTAINER_ONLY_FIELDS, type EquipmentType } from "./equipment.js";
 import { containerNumberProblem } from "./container.js";
+import { planProblems, type MovePlan, type MoveType } from "./legs.js";
 
 export const LOAD_STATUSES = [
   "DRAFT", "QUOTED", "BOOKED", "PLANNED", "ASSIGNED", "DISPATCHED", "AT_PICKUP", "PICKED_UP", "IN_TRANSIT",
@@ -52,7 +53,15 @@ export type LoadFields = {
   container_size?: string | null;
   booking_number?: string | null;
   is_street_turn?: boolean | null;
-} & Partial<Record<(typeof CONTAINER_ONLY_FIELDS)[number], unknown>>;
+  move_type?: MoveType | null;
+} & Omit<MovePlan, "move_type"> & Partial<Record<(typeof CONTAINER_ONLY_FIELDS)[number], unknown>>;
+
+/** The move a load makes when none was chosen: live for containers, straight through for other freight. */
+export function moveTypeOf(load: { equipment_type: EquipmentType; direction?: string | null; move_type?: MoveType | null }): MoveType {
+  if (load.move_type) return load.move_type;
+  if (load.equipment_type !== "CONTAINER") return "ONE_WAY";
+  return load.direction === "EXPORT" ? "EXPORT_LIVE" : "IMPORT_LIVE";
+}
 
 /** Shape problems that make a load wrong at any status. */
 export function loadShapeProblems(load: LoadFields): string[] {
@@ -66,6 +75,13 @@ export function loadShapeProblems(load: LoadFields): string[] {
     const p = containerNumberProblem(load.container_number);
     if (p) problems.push(p);
   }
+  if (load.move_type) {
+    const mt = load.move_type;
+    if (load.equipment_type !== "CONTAINER" && mt !== "ONE_WAY") problems.push("Only containers make import or export moves");
+    if (load.equipment_type === "CONTAINER" && mt === "ONE_WAY") problems.push("A container move is an import or an export");
+    if (load.direction === "IMPORT" && mt.startsWith("EXPORT")) problems.push("An import cannot make an export move");
+    if (load.direction === "EXPORT" && mt.startsWith("IMPORT")) problems.push("An export cannot make an import move");
+  }
   return problems;
 }
 
@@ -73,8 +89,6 @@ export function loadShapeProblems(load: LoadFields): string[] {
 export function bookingProblems(load: LoadFields): string[] {
   const missing: string[] = [];
   if (!load.customer_id) missing.push("customer");
-  if (!load.pickup_location_id) missing.push("pickup location");
-  if (!load.delivery_location_id) missing.push("delivery location");
   if (load.rate == null) missing.push("rate");
   if (load.equipment_type === "CONTAINER") {
     if (!load.direction) missing.push("import or export");
@@ -85,5 +99,6 @@ export function bookingProblems(load: LoadFields): string[] {
     if (!load.commodity) missing.push("commodity");
     if (!load.weight_lbs) missing.push("weight");
   }
-  return [...loadShapeProblems(load), ...(missing.length ? [`Missing ${missing.join(", ")}`] : [])];
+  const plan = load.equipment_type === "CONTAINER" && !load.direction ? [] : planProblems({ ...load, move_type: moveTypeOf(load) });
+  return [...loadShapeProblems(load), ...(missing.length ? [`Missing ${missing.join(", ")}`] : []), ...plan];
 }

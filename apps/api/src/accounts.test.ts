@@ -27,7 +27,7 @@ async function withApi(fn: (as: As, extras: { invites: string[]; store: ReturnTy
     now: () => NOW,
     verifyUser: async (t) => people[t] ?? null,
     inviteUser: async (email) => (invites.push(email), "sent"),
-    files: () => ({ uploadUrl: async (path) => ({ path, token: "tok", signedUrl: `https://storage.test/${path}` }), downloadUrl: async (p) => `https://dl.test/${p}` }),
+    files: () => ({ uploadUrl: async (path) => ({ path, token: "tok", signedUrl: `https://storage.test/${path}` }), downloadUrl: async (p) => `https://dl.test/${p}`, download: async () => Buffer.from("") }),
   }).listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const as: As = (token) => async (method, path, body) => {
@@ -125,7 +125,7 @@ test("platform tools need the platform key; the key needs a company for office w
     assert.equal((await ann("POST", "/email/send", { to: "a@b.co", subject: "s", html: "x" })).status, 403);
     assert.equal((await ann("POST", "/llm/complete", { prompt: "hi" })).status, 403);
     assert.equal((await ann("POST", "/fmcsa/recheck", {})).status, 403);
-    assert.equal((await ann("POST", "/terminals", { name: "APM" })).status, 403);
+    assert.equal((await ann("POST", "/terminals", { name: "APM" })).status, 201, "any company can add a missing terminal to the shared list");
     assert.equal((await ann("GET", "/terminals")).status, 200, "everyone reads the shared terminal list");
     const platform = as(KEY);
     assert.equal((await platform("GET", "/providers")).status, 200);
@@ -155,18 +155,23 @@ test("a driver runs their trip from the phone: start, statuses, check-in, proof 
 
     const mine = (await dee("GET", "/driver/trips")).body;
     assert.equal(mine.trips.length, 1);
-    assert.equal(mine.trips[0].loads[0].pickup.label, "Warehouse");
     assert.equal(mine.truck.truck_number, "B-7");
     assert.equal((await dan("GET", "/driver/trips")).body.trips.length, 0, "other drivers don't see it");
-    assert.equal((await dan("POST", `/driver/loads/${load.id}/status`, { status: "AT_PICKUP" })).status, 404);
 
-    assert.equal((await dee("POST", `/driver/loads/${load.id}/status`, { status: "AT_PICKUP" })).status, 409, "start the trip first");
+    const leg = mine.trips[0].legs[0];
+    assert.equal(leg.from.label, "Warehouse");
+    assert.equal(leg.to.label, "Store #12");
+    assert.equal((await dee("POST", `/driver/legs/${leg.id}/advance`)).status, 409, "start the trip first");
+    assert.equal((await dan("POST", `/driver/legs/${leg.id}/advance`)).status, 404, "not Dan's leg");
     assert.equal((await dee("POST", `/driver/trips/${trip.id}/start`)).status, 200);
-    assert.equal((await dee("POST", `/driver/loads/${load.id}/status`, { status: "DELIVERED" })).status, 409, "no skipping ahead");
-    for (const status of ["AT_PICKUP", "PICKED_UP", "AT_DELIVERY", "DELIVERED"]) {
-      const r = await dee("POST", `/driver/loads/${load.id}/status`, { status });
-      assert.equal(r.status, 200, `${status}: ${JSON.stringify(r.body)}`);
+    assert.equal((await dee("POST", `/driver/legs/${leg.id}/advance`, { to: "DONE" })).status, 409, "no skipping ahead");
+    const statuses: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const r = await dee("POST", `/driver/legs/${leg.id}/advance`);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      statuses.push(r.body.load.status);
     }
+    assert.deepEqual(statuses, ["AT_PICKUP", "PICKED_UP", "AT_DELIVERY", "DELIVERED"]);
     assert.equal((await dee("POST", `/driver/trips/${trip.id}/events`, { event_type: "CHECK_CALL", lat: 40.7, lng: -74.1 })).status, 201);
 
     // Proof of delivery: signed upload, then record it; the load moves to POD received.

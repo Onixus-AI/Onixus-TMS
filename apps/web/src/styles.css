@@ -70,3 +70,7 @@ tr.muted td { color: var(--muted); }
   header { margin-bottom: 12px; }
   h1 { font-size: 18px; }
 }
+input.inline { padding: 4px 6px; font-size: 13px; min-width: 90px; }
+label.check.leg { margin-left: 18px; color: var(--muted); }
+.driver-load.done { opacity: 0.55; }
+td select { min-width: 72px; }

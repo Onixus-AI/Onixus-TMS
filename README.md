@@ -25,6 +25,26 @@ picked up, arrived at delivery, delivered), open directions, check in with
 the phone's location, and photograph the proof of delivery, which moves
 the load to "POD received" for billing.
 
+## Drayage first
+
+**Delivery orders in, loads out.** Upload the delivery order or booking
+(PDF or photo) or paste the email; Claude reads it (customer, steamship
+line, B/L, pickup number, vessel and ETA, terminal, last free day, consignee,
+every container with size, type, weight and seal). You check the draft,
+mistyped container numbers are flagged by their check digit, and one load per
+container is created and booked, with the customer, line, terminal and
+delivery site matched to what you already have or added.
+
+**Moves are legs.** Each container move is planned as legs when the load is
+booked: import live unload, drop & pick, prepull to your yard, export live
+load or drop, with empties back to the terminal or a depot of your choice.
+Dispatch puts legs on trips (a live unload is both legs on one trip; a drop
+sends the empty later), drivers tap through each leg in order, and the load's
+status, out-gate (starts per diem), empty return and export in-gate (stop it)
+follow. Each leg carries its terminal appointment. Approving a street turn
+cancels the import's empty trip and sends the export's empty from the
+consignee.
+
 ## What it does
 
 | Area | What you get |
@@ -104,8 +124,12 @@ fix (for example every reason a trip can't be dispatched).
 |---|---|
 | `GET /me`, `POST /onboarding` | Who am I (accepts a pending invitation on first sign-in); start a company or owner-operator business |
 | `GET /members`, `POST /members/invitations`, `PATCH /members/:id` | Owners: team, invitations, roles, driver links, remove access |
-| `GET /driver/trips`, `POST /driver/trips/:id/start\|complete\|events`, `POST /driver/loads/:id/status` | Driver app |
+| `GET /driver/trips`, `POST /driver/trips/:id/start\|complete\|events` | Driver app: trips with their legs, places and loads |
 | `GET/POST /loads/:id/documents`, `POST /loads/:id/documents/upload-url` (also under `/driver`) | POD, BOL, photos via signed upload URLs |
+| `POST /delivery-orders/upload-url`, `POST /delivery-orders/read`, `POST /delivery-orders` | Read a delivery order (file or pasted email) into a draft; create a load per container |
+| `GET /legs?status=PLANNED`, `POST /legs/:id/advance`, `PATCH /legs/:id`, `POST /loads/:id/legs/plan` | The dispatch board, tapping a leg forward, terminal appointments, replanning |
+| `POST /driver/legs/:id/advance` | The driver's next step on a leg |
+| `POST /locations` | Your yard and empty depots |
 | `GET /providers` | Which provider each capability uses and whether it is configured |
 | `POST /email/send` | `{to, subject, html, replyTo?}` from the connected mailbox |
 | `GET /email/unread?limit=20` | Unread inbox messages |
@@ -118,7 +142,7 @@ fix (for example every reason a trip can't be dispatched).
 | `POST /loads/:id/empty-returned` | Stops per diem |
 | `POST /loads/:id/invoice` | `{accessorials?, include_container_charges?}` |
 | `GET/POST /drivers`, `/trucks`, `/trailers`; `PATCH …/:id` | Fleet (trailers include chassis) |
-| `POST /dispatch` | `{load_ids, driver_id, truck_id, trailer_id?}` |
+| `POST /dispatch` | `{leg_ids or load_ids, driver_id, truck_id, trailer_id?}` |
 | `GET /trips`, `GET /trips/:id`, `POST /trips/:id/status`, `POST /trips/:id/events` | Dispatch, complete or cancel a trip; check calls |
 | `GET /containers/alerts` | Demurrage, per diem and cutoff risk |
 | `GET /street-turns?radius=50`, `POST /street-turns`, `POST /street-turns/:importId/approve\|reject` | Street turns |
@@ -135,7 +159,7 @@ fix (for example every reason a trip can't be dispatched).
 - `packages/providers`: the email, CRM, AI, GPS, FMCSA and database adapters, plus the registry that picks one per capability.
 - `apps/api`: the Express API (`apps/api/Dockerfile`; build from the repo root).
 - `apps/web`: the Vite + React dispatcher app, deployed to Vercel.
-- `supabase/migrations`: the schema. `002` turns on row-level security for every table (the API uses the service-role key); `003` adds equipment types, trailers, driver qualifications and container clocks; `004` adds organizations' members, invitations, `org_id` everywhere, load documents and the private `documents` storage bucket.
+- `supabase/migrations`: the schema. `002` turns on row-level security for every table (the API uses the service-role key); `003` adds equipment types, trailers, driver qualifications and container clocks; `004` adds organizations' members, invitations, `org_id` everywhere, load documents and the private `documents` storage bucket; `005` adds move types, `load_legs`, yards and depots, and delivery-order fields.
 
 ## Deploy
 

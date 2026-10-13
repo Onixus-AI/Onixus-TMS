@@ -2,10 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   bookingProblems, canTransition, CONTAINER_DEFAULTS, CONTAINER_SIZES, CONTAINER_TYPES, containerRisk, demurrage, DIRECTIONS, EQUIPMENT_TYPES,
-  FINISHED, LOAD_STATUSES, loadShapeProblems, normalizeContainerNumber, perDiem, type LoadFields, type LoadStatus,
+  FINISHED, LOAD_STATUSES, loadShapeProblems, MOVE_TYPES, normalizeContainerNumber, perDiem, type LoadFields, type LoadStatus,
 } from "@onixus/core";
 import { defined, HttpError, isoDate, money, mustGet, text, uuid, type Ctx } from "../http.js";
 import { listDocuments, recordDocument, uploadUrl } from "./documents.js";
+import { legsOf, placesFor, planLoadLegs, syncLoad } from "./legs.js";
 
 export type Load = LoadFields & {
   id: string;
@@ -23,6 +24,8 @@ export type Load = LoadFields & {
   street_turn_pair_id?: string | null;
   street_turn_status?: string | null;
   hazmat?: boolean;
+  ingated_at?: string | null;
+  org_id?: string;
 };
 
 const loadFields = z.object({
@@ -57,9 +60,26 @@ const loadFields = z.object({
   demurrage_per_day: money.optional(),
   per_diem_per_day: money.optional(),
   per_diem_free_days: z.number().int().min(0).max(60).optional(),
+  // The move: which legs the container makes (packages/core/src/legs.ts).
+  move_type: z.enum(MOVE_TYPES).nullish(),
+  terminal_id: uuid.nullish(),
+  yard_location_id: uuid.nullish(),
+  return_terminal_id: uuid.nullish(),
+  return_location_id: uuid.nullish(),
+  empty_pickup_terminal_id: uuid.nullish(),
+  empty_pickup_location_id: uuid.nullish(),
+  // From the delivery order.
+  vessel: text(80).nullish(),
+  voyage: text(40).nullish(),
+  vessel_eta: isoDate.nullish(),
+  pickup_number: text(60).nullish(),
+  customer_reference: text(80).nullish(),
 });
 const newLoad = loadFields.extend({ equipment_type: z.enum(EQUIPMENT_TYPES).default("CONTAINER") });
 const statusChange = z.object({ status: z.enum(LOAD_STATUSES), note: text(500).optional() });
+/** Road statuses come from the legs (driver app, or the office tapping a leg), never typed in. */
+const ROAD: readonly LoadStatus[] = ["ASSIGNED", "DISPATCHED", "AT_PICKUP", "PICKED_UP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED"];
+const PLANNABLE: readonly LoadStatus[] = ["BOOKED", "PLANNED"];
 
 function checkShape(load: LoadFields) {
   const problems = loadShapeProblems(load);
@@ -83,6 +103,11 @@ export async function moveLoad(ctx: Ctx, load: Load, to: LoadStatus, note?: stri
   const updated = await ctx.store().update<Load>("loads", load.id, patch, { status: load.status });
   if (!updated) throw new HttpError(409, `Load ${load.load_number ?? load.id} changed while you were working; reload and try again`);
   await ctx.store().insert("load_events", { load_id: load.id, from_status: load.status, to_status: to, note: note ?? null });
+  // Booking plans the legs; coming off hold catches up with legs already driven.
+  if (to === "BOOKED") {
+    await planLoadLegs(ctx, updated);
+    if (load.status === "ON_HOLD") return syncLoad(ctx, load.id);
+  }
   return updated;
 }
 
@@ -117,8 +142,12 @@ export function loadRoutes(ctx: Ctx) {
 
   r.get("/loads/:id", async (req, res) => {
     const load = await mustGet<Load>(ctx, "loads", req.params.id, "Load");
-    const events = await ctx.store().list("load_events", { load_id: load.id }, { order: "created_at", ascending: true });
-    res.json({ load, events, charges: charges(load, ctx.now()) });
+    const [events, legs] = await Promise.all([
+      ctx.store().list("load_events", { load_id: load.id }, { order: "created_at", ascending: true }),
+      legsOf(ctx, load.id),
+    ]);
+    const shown = legs.filter((l) => l.status !== "CANCELED");
+    res.json({ load, legs: shown, places: await placesFor(ctx, shown), events, charges: charges(load, ctx.now()) });
   });
 
   r.patch("/loads/:id", async (req, res) => {
@@ -129,15 +158,17 @@ export function loadRoutes(ctx: Ctx) {
       throw new HttpError(409, "Equipment type can only change before the load is booked");
     }
     checkShape({ ...load, ...patch } as LoadFields);
-    const updated = await ctx.store().update("loads", load.id, { ...patch, updated_at: ctx.now().toISOString() });
+    const updated = await ctx.store().update<Load>("loads", load.id, { ...patch, updated_at: ctx.now().toISOString() });
+    // A changed stop or move replans legs nobody has been assigned yet.
+    if (updated && PLANNABLE.includes(updated.status)) await planLoadLegs(ctx, updated);
     res.json({ load: updated });
   });
 
   r.post("/loads/:id/status", async (req, res) => {
     const { status, note } = statusChange.parse(req.body);
     const load = await mustGet<Load>(ctx, "loads", req.params.id, "Load");
-    if (["ASSIGNED", "DISPATCHED"].includes(status) && load.status !== "ON_HOLD" && load.status !== "DISPATCHED") {
-      throw new HttpError(409, "Assign loads through dispatch, which checks the truck, trailer and driver");
+    if (ROAD.includes(status)) {
+      throw new HttpError(409, status === "ASSIGNED" ? "Assign legs through dispatch, which checks the truck, trailer and driver" : "Road updates come from the legs: the driver app, or tap the leg on the load");
     }
     res.json({ load: await moveLoad(ctx, load, status, note) });
   });

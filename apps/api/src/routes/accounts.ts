@@ -20,6 +20,7 @@ const customer = z.object({
 });
 const location = z.object({
   label: text(),
+  kind: z.enum(["CUSTOMER", "YARD", "DEPOT"]).optional(),
   address: text(300).nullish(),
   city: text(100).nullish(),
   state: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Two-letter state").nullish(),
@@ -83,10 +84,23 @@ export function accountRoutes(ctx: Ctx) {
     if ((l.lat == null) !== (l.lng == null)) throw new HttpError(400, "Give both latitude and longitude, or neither");
     res.status(201).json({ location: await ctx.store().insert("customer_locations", { customer_id: c.id, ...defined(l) }) });
   });
+  // Our own places: the yard (prepulls, drops) and empty-return depots.
+  r.post("/locations", async (req, res) => {
+    const l = location.extend({ kind: z.enum(["YARD", "DEPOT"]) }).parse(req.body);
+    if ((l.lat == null) !== (l.lng == null)) throw new HttpError(400, "Give both latitude and longitude, or neither");
+    res.status(201).json({ location: await ctx.store().insert("customer_locations", { customer_id: null, ...defined(l) }) });
+  });
   r.get("/locations", async (_req, res) => {
     res.json({ locations: await ctx.store().list("customer_locations", {}, { order: "label", ascending: true, limit: 1000 }) });
   });
 
+  // Terminals are one shared list; any company can add a missing one.
+  r.post("/terminals", async (req, res) => {
+    const t = terminal.parse(req.body);
+    const [same] = (await ctx.db().list<{ id: string; name: string }>("port_terminals", {}, { limit: 1000 })).filter((x) => x.name.toLowerCase() === t.name.toLowerCase());
+    if (same) return res.json({ terminal: same });
+    res.status(201).json({ terminal: await ctx.db().insert("port_terminals", defined(t)) });
+  });
   r.get("/terminals", async (_req, res) => {
     res.json({ terminals: await ctx.store().list("port_terminals", {}, { order: "name", ascending: true, limit: 500 }) });
   });
@@ -168,13 +182,9 @@ export async function checkCustomer(ctx: Ctx, c: Customer) {
   return check;
 }
 
-/** Platform jobs: shared port terminals, and the daily FMCSA re-check across every company. */
+/** Platform jobs: the daily FMCSA re-check across every company. */
 export function platformAccountRoutes(ctx: Ctx) {
   const r = Router();
-  r.post("/terminals", async (req, res) => {
-    res.status(201).json({ terminal: await ctx.db().insert("port_terminals", defined(terminal.parse(req.body))) });
-  });
-
   /** Re-check every customer with a DOT number not checked in `older_than_days`. Call it daily from a scheduler. */
   r.post("/fmcsa/recheck", async (req, res) => {
     const { older_than_days, limit } = z.object({ older_than_days: z.number().int().min(0).max(365).default(7), limit: z.number().int().min(1).max(200).default(50) }).parse(req.body ?? {});
