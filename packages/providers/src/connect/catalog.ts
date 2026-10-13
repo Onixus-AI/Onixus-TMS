@@ -5,7 +5,6 @@ import { googleDrive, googleSheets, type Documents, type Sheet } from "../google
 import { fetchJson, missingVars, type Env } from "../env.js";
 import { claude } from "../llm/claude.js";
 import { openAiCompatible } from "../llm/openai.js";
-import { openrouter } from "../llm/openrouter.js";
 import { hubspot } from "../crm/hubspot.js";
 import { gmail } from "../email/gmail.js";
 import { microsoft } from "../email/microsoft.js";
@@ -23,13 +22,15 @@ import { ProviderError, type CrmProvider, type EmailProvider, type FinanceProvid
 //  - oauth: the company signs in at the provider; Onixus's app (client id and
 //    secret in the API's environment) receives a refresh token.
 //  - fields: the company pastes an API key or server login.
-//  - soon: listed, not connectable yet (Veltra products, until their APIs land).
+//  - link: one click hands an Onixus product (Veltra) a key for this company.
+//  - builtin: included with Onixus, nothing to connect (Onixus AI).
+//  - soon: listed, not connectable yet.
 
-export const CATEGORIES = ["email", "crm", "finance", "tracking", "ai", "automation", "chat", "calendar", "documents", "reports"] as const;
+export const CATEGORIES = ["email", "inbox", "crm", "finance", "tracking", "ai", "automation", "chat", "calendar", "documents", "reports", "social"] as const;
 export type Category = (typeof CATEGORIES)[number];
 export type Credentials = Record<string, string>;
 export type Field = { name: string; label: string; secret?: boolean; placeholder?: string; optional?: boolean; pattern?: string; hint?: string };
-export type Built = { email: EmailProvider; crm: CrmProvider; finance: FinanceProvider; tracking: TrackingProvider; ai: LlmProvider; automation: Automation; chat: Chat; calendar: Calendar; documents: Documents; reports: Sheet };
+export type Built = { inbox: never; social: never; email: EmailProvider; crm: CrmProvider; finance: FinanceProvider; tracking: TrackingProvider; ai: LlmProvider; automation: Automation; chat: Chat; calendar: Calendar; documents: Documents; reports: Sheet };
 type Hooks = { onRotate?: (refreshToken: string) => void };
 
 export type OAuthSpec = {
@@ -53,7 +54,7 @@ export type Connector<C extends Category = Category> = {
   label: string;
   by?: "Onixus";
   blurb: string;
-  method: "oauth" | "fields" | "soon";
+  method: "oauth" | "fields" | "link" | "builtin" | "soon";
   fields?: Field[];
   oauth?: OAuthSpec;
   /** A working provider from the company's credentials (and the platform's app credentials in env). */
@@ -114,7 +115,10 @@ export const CONNECTORS: Connector[] = [
     },
     build: (env, c, hooks) => microsoft({ ...env, MS_REFRESH_TOKEN: c.refresh_token, MS_SCOPE: "offline_access Mail.Send User.Read" }, hooks),
   },
-  { id: "veltra", category: "email", label: "Veltra", by: "Onixus", blurb: "The AI email employee: cleans the inbox, answers, quotes within your rate floor, files DOs and BOLs into Onixus, follows up.", method: "soon" },
+  {
+    id: "veltra", category: "inbox", label: "Veltra", by: "Onixus", method: "link",
+    blurb: "The AI email employee works your inbox with Onixus: delivery orders become loads, BOLs and PODs land on the right load, quotes come from your rates.",
+  },
 
   {
     id: "hubspot", category: "crm", label: "HubSpot", blurb: "New customers are added to HubSpot as companies; sync existing ones with a click.", method: "fields",
@@ -135,10 +139,11 @@ export const CONNECTORS: Connector[] = [
   },
   { id: "veltrafi", category: "finance", label: "VeltraFi", by: "Onixus", blurb: "Onixus's own finance: invoicing, factoring and payouts.", method: "soon" },
 
+  { id: "onixus-ai", category: "ai", label: "Onixus AI", by: "Onixus", method: "builtin", blurb: "Included. Answers the assistant and drafts emails until you connect your own model." },
   {
     id: "openai", category: "ai", label: "OpenAI", blurb: "Your OpenAI key powers the assistant and email drafts (GPT models).", method: "fields",
     fields: [{ name: "api_key", label: "API key", secret: true, placeholder: "sk-…" }, { name: "model", label: "Model", optional: true, placeholder: "gpt-5 (default)" }],
-    build: (_env, c) => openAiCompatible({ name: "openai", label: "OpenAI", apiKey: c.api_key!, model: c.model || "gpt-5" }),
+    build: (env, c) => openAiCompatible({ name: "openai", label: "OpenAI", apiKey: c.api_key!, model: c.model || "gpt-5", baseURL: env.OPENAI_BASE_URL?.trim() || undefined }),
   },
   {
     id: "anthropic", category: "ai", label: "Claude", blurb: "Your Anthropic key powers the assistant and email drafts (Claude models).", method: "fields",
@@ -149,11 +154,6 @@ export const CONNECTORS: Connector[] = [
     id: "gemini", category: "ai", label: "Gemini", blurb: "Your Google AI Studio key powers the assistant and email drafts (Gemini models).", method: "fields",
     fields: [{ name: "api_key", label: "API key", secret: true, placeholder: "AIza…" }, { name: "model", label: "Model", optional: true, placeholder: "gemini-2.5-flash (default)" }],
     build: (_env, c) => openAiCompatible({ name: "gemini", label: "Gemini", apiKey: c.api_key!, model: c.model || "gemini-2.5-flash", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/" }),
-  },
-  {
-    id: "openrouter", category: "ai", label: "OpenRouter", blurb: "One key for DeepSeek, Qwen, Llama, Mistral and hundreds more.", method: "fields",
-    fields: [{ name: "api_key", label: "API key", secret: true, placeholder: "sk-or-…" }, { name: "model", label: "Model", optional: true, placeholder: "google/gemini-2.5-flash (default)" }],
-    build: (env, c) => openrouter({ OPENROUTER_API_KEY: c.api_key, OPENROUTER_MODEL: c.model, OPENROUTER_BASE_URL: env.OPENROUTER_BASE_URL }),
   },
 
   {
@@ -223,13 +223,19 @@ export const CONNECTORS: Connector[] = [
     fields: [{ name: "url", label: "Server URL", placeholder: "https://gps.yourcompany.com" }, { name: "token", label: "API token", secret: true }],
     build: (env, c) => traccar({ ...env, TRACCAR_URL: c.url, TRACCAR_TOKEN: c.token }),
   },
+
+  { id: "linkedin", category: "social", label: "LinkedIn", method: "soon", blurb: "Post driver openings and company news on your LinkedIn page." },
 ];
 
 export const connector = (id: string) => CONNECTORS.find((c) => c.id === id);
 
 /** Whether Onixus's own app credentials for an OAuth provider are in place; without them the company can't start. */
 export function oauthReady(env: Env, c: Connector): { ready: boolean; missing: string[] } {
-  if (c.method !== "oauth" || !c.oauth) return { ready: c.method === "fields", missing: [] };
+  if (c.method === "link") {
+    const missing = missingVars(env, ["VELTRA_URL", "VELTRA_API_KEY"]);
+    return { ready: missing.length === 0, missing };
+  }
+  if (c.method !== "oauth" || !c.oauth) return { ready: c.method === "fields" || c.method === "builtin", missing: [] };
   const missing = missingVars(env, [c.oauth.clientIdVar, c.oauth.clientSecretVar]);
   return { ready: missing.length === 0, missing };
 }

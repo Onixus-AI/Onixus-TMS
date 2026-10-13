@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { Router, type Request } from "express";
 import { z } from "zod";
 import {
-  authorizeUrl, CATEGORIES, connector, CONNECTORS, exchangeCode, oauthReady, scopedStore, seal, signToken, unseal, verifyToken,
+  authorizeUrl, CATEGORIES, connector, CONNECTORS, exchangeCode, oauthReady, ProviderError, scopedStore, seal, signToken, unseal, veltra, verifyToken,
   type Automation, type Built, type Calendar, type Category, type Chat, type Documents, type Sheet, type Connector, type CrmProvider, type EmailProvider, type LlmProvider, type TrackingProvider,
 } from "@onixus/providers";
+import { COMPANY_KEY_PREFIX, forgetCompanyKeys, keyHash } from "../auth.js";
 import { HttpError, type Ctx } from "../http.js";
 
 // Each company's own connections: its mailbox, CRM, books, GPS, AI key,
@@ -19,7 +21,8 @@ function orgAndUser(ctx: Ctx) {
   const c = ctx.caller();
   const orgId = c?.kind === "system" ? c.orgId : c?.member?.org_id;
   if (!orgId) throw new HttpError(403, "Join or create a company first");
-  return { orgId, email: c?.kind === "user" ? c.user.email : "platform", owner: c?.kind === "system" || c?.member?.role === "OWNER" };
+  // A company key (Veltra) works inside the company but never changes its connections.
+  return { orgId, email: c?.kind === "user" ? c.user.email : "platform", owner: (c?.kind === "system" && !c.keyId) || (c?.kind === "user" && c.member?.role === "OWNER") };
 }
 function mustOwn(ctx: Ctx) {
   const who = orgAndUser(ctx);
@@ -116,10 +119,17 @@ async function save(ctx: Ctx, c: Connector, account: string, creds: Record<strin
 
 const shown = (r: ConnectionRow) => ({ id: r.id, category: r.category, provider: r.provider, account: r.account, status: r.status, last_error: r.last_error, connected_by: r.connected_by, updated_at: r.updated_at });
 
-/** Where the provider sends the person back to: this API's public address. */
-function callbackUrl(ctx: Ctx, req: Request) {
-  const base = ctx.env.API_PUBLIC_URL?.trim() || (ctx.env.RAILWAY_PUBLIC_DOMAIN ? `https://${ctx.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get("host")}`);
-  return `${base.replace(/\/$/, "")}/connections/oauth/callback`;
+/** This API's public address. */
+const apiBase = (ctx: Ctx, req: Request) =>
+  (ctx.env.API_PUBLIC_URL?.trim() || (ctx.env.RAILWAY_PUBLIC_DOMAIN ? `https://${ctx.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get("host")}`)).replace(/\/$/, "");
+/** Where the provider sends the person back to. */
+const callbackUrl = (ctx: Ctx, req: Request) => `${apiBase(ctx, req)}/connections/oauth/callback`;
+
+/** Retire a Veltra link: its company key stops working, and Veltra forgets it unless it was linked elsewhere since. */
+async function unlinkVeltra(ctx: Ctx, row: ConnectionRow, orgId: string, tellVeltra: boolean) {
+  const creds = unseal(secretOf(ctx), row.secret);
+  if (creds.key_id) await ctx.store().update("api_keys", creds.key_id, { revoked_at: ctx.now().toISOString() }).then(forgetCompanyKeys, () => {});
+  if (tellVeltra && creds.account_id) await veltra(ctx.env).unlink(creds.account_id, orgId).catch(() => {});
 }
 const webOrigin = (ctx: Ctx) => (ctx.env.WEB_ORIGIN ?? "http://localhost:5173").split(",")[0]!.trim();
 
@@ -208,6 +218,33 @@ export function connectionRoutes(ctx: Ctx) {
     res.status(201).json({ connection: shown(row!), detail });
   });
 
+  // Veltra: one click gives the Veltra account signed in with the owner's own
+  // email a key that works only inside this company. Matching verified
+  // emails is what keeps one company from linking itself into someone
+  // else's Veltra.
+  r.post("/connections/veltra/link", async (req, res) => {
+    const who = mustOwn(ctx);
+    if (ctx.caller()?.kind !== "user") throw new HttpError(403, "Sign in as the owner to link Veltra");
+    const c = connector("veltra")!;
+    const ready = oauthReady(ctx.env, c);
+    if (!ready.ready) throw new HttpError(503, `Onixus hasn't set up Veltra yet (needs ${ready.missing.join(", ")})`);
+    const key = `${COMPANY_KEY_PREFIX}${randomBytes(32).toString("base64url")}`;
+    const store = ctx.store();
+    const minted = await store.insert<{ id: string }>("api_keys", { label: "Veltra", hash: keyHash(key), created_by: who.email });
+    let account;
+    try {
+      account = await veltra(ctx.env).link({ email: who.email, api_url: apiBase(ctx, req), api_key: key, org_id: who.orgId });
+    } catch (e) {
+      await store.remove("api_keys", minted!.id).catch(() => {});
+      if (e instanceof ProviderError && e.upstreamStatus === 404) throw new HttpError(422, `No Veltra account uses ${who.email}. Sign in to Veltra with that email at ${veltra(ctx.env).url}, then link again.`);
+      throw new HttpError(422, `Veltra didn't accept the link: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const before = await rowFor(ctx, "inbox");
+    if (before) await unlinkVeltra(ctx, before, who.orgId, false);
+    const row = await save(ctx, c, account.mailbox ? `${account.name} · ${account.mailbox}` : account.name, { key_id: minted!.id, account_id: account.id }, who);
+    res.status(201).json({ connection: shown(row!), detail: account.mailbox ? `Veltra is working ${account.mailbox} with Onixus` : "Linked. Connect a mailbox in Veltra so it can start" });
+  });
+
   // Sign in at the provider: a signed state carries the company and the person through the round trip.
   r.post("/connections/:provider/start", async (req, res) => {
     const who = mustOwn(ctx);
@@ -221,9 +258,10 @@ export function connectionRoutes(ctx: Ctx) {
   });
 
   r.delete("/connections/:category", async (req, res) => {
-    mustOwn(ctx);
+    const who = mustOwn(ctx);
     const category = z.enum(CATEGORIES).parse(req.params.category);
     const row = await rowFor(ctx, category);
+    if (row?.provider === "veltra") await unlinkVeltra(ctx, row, who.orgId, true);
     if (row) await ctx.store().remove("connections", row.id);
     res.json({ removed: Boolean(row) });
   });
@@ -233,6 +271,13 @@ export function connectionRoutes(ctx: Ctx) {
     const row = await rowFor(ctx, category);
     if (!row) throw new HttpError(404, "Nothing is connected here");
     try {
+      if (row.provider === "veltra") {
+        const a = await veltra(ctx.env).account(unseal(secretOf(ctx), row.secret).account_id!);
+        if (a.onixus_org !== orgAndUser(ctx).orgId) throw new Error("Veltra is no longer linked to this company; link it again");
+        const detail = a.mailbox ? `Veltra is working ${a.mailbox} with Onixus` : "Linked, but Veltra has no mailbox yet: connect one in Veltra";
+        await ctx.store().update("connections", row.id, { status: "CONNECTED", last_error: null });
+        return res.json({ ok: true, detail });
+      }
       const p = await connected(ctx, category);
       if (!p) throw new Error(`${row.provider} isn't available`);
       const detail = category === "email"

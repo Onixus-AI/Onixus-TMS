@@ -457,6 +457,9 @@ main { min-width: 0; }
 .m-openai { background: linear-gradient(135deg, #2b2b2b, #0d0d0d); font-size: 13px; letter-spacing: 0.02em; }
 .m-slack { background: linear-gradient(135deg, #611f69, #3f0e40); font-size: 19px; }
 .m-teams { background: linear-gradient(135deg, #6264a7, #464775); }
+.m-linkedin { background: linear-gradient(135deg, #0a66c2, #004182); font-size: 17px; letter-spacing: -0.02em; }
+.m-onixus { background: linear-gradient(160deg, #10161f, #05080c); border: 1px solid rgba(126, 224, 195, 0.35); }
+.m-onixus svg { width: 26px; height: 26px; }
 /* A real logo sits on a light tile, the way app icons do, so every brand colour reads on the dark page. */
 .mark.logo { background: linear-gradient(160deg, #ffffff, #e9edf2); }
 .mark.logo svg { width: 22px; height: 22px; }

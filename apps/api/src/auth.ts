@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { scopedStore, type AuthUser, type Store } from "@onixus/providers";
@@ -10,7 +10,9 @@ import { defined, HttpError, mustGet, ROLES, text, uuid, type Caller, type Ctx, 
 //    inside their own organization, with their role's permissions;
 //  - the platform (Onixus itself, cron jobs, n8n) sends TMS_API_KEY; with an
 //    X-Org-Id header it acts inside that organization, without one it can
-//    reach only the platform routes.
+//    reach only the platform routes;
+//  - an Onixus product (Veltra) sends a company key (onx_…), which acts
+//    inside that one company and never reaches platform routes.
 // The caller is kept in AsyncLocalStorage so ctx.store() is scoped to the
 // right organization in every route without passing it around.
 
@@ -51,8 +53,31 @@ export async function memberOf(db: Store, userId: string): Promise<Member | null
   return m && !m.disabled_at ? m : null;
 }
 
+export const COMPANY_KEY_PREFIX = "onx_";
+export const keyHash = (key: string) => createHash("sha256").update(key).digest("hex");
+
+const keyCache = new Map<string, { key: { id: string; org_id: string } | null; until: number }>();
+/** After a key is revoked here; other API instances notice within a minute. */
+export const forgetCompanyKeys = () => keyCache.clear();
+
+/** Company keys, checked against their hash. */
+function companyKeys(ctx: Ctx) {
+  const cache = keyCache;
+  return async (token: string) => {
+    const hash = keyHash(token);
+    const hit = cache.get(hash);
+    if (hit && hit.until > Date.now()) return hit.key;
+    const [row] = await ctx.db().list<{ id: string; org_id: string; revoked_at: string | null }>("api_keys", { hash }, { limit: 1 });
+    const key = row && !row.revoked_at ? { id: row.id, org_id: row.org_id } : null;
+    if (cache.size > 5_000) cache.clear();
+    cache.set(hash, { key, until: Date.now() + 60_000 });
+    return key;
+  };
+}
+
 export function authenticate(ctx: Ctx, apiKey: string) {
   const verify = cachedVerifier(ctx.verifyUser);
+  const companyKey = companyKeys(ctx);
   return async (req: Request, res: Response, next: NextFunction) => {
     const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "").trim();
     if (!token) return res.status(401).json({ error: "Sign in first" });
@@ -61,6 +86,13 @@ export function authenticate(ctx: Ctx, apiKey: string) {
       const orgId = header ? uuid.safeParse(header) : null;
       if (orgId && !orgId.success) return res.status(400).json({ error: "X-Org-Id must be an organization id" });
       return callerStore.run({ kind: "system", orgId: orgId?.data }, next);
+    }
+    if (token.startsWith(COMPANY_KEY_PREFIX)) {
+      const key = await companyKey(token);
+      if (!key) return res.status(401).json({ error: "That company key was revoked or never existed" });
+      const header = req.header("x-org-id");
+      if (header && header !== key.org_id) return res.status(403).json({ error: "This key works only inside its own company" });
+      return callerStore.run({ kind: "system", orgId: key.org_id, keyId: key.id }, next);
     }
     const user = await verify(token);
     if (!user) return res.status(401).json({ error: "Your session expired; sign in again" });
@@ -73,7 +105,8 @@ const deny = (res: Response, status: number, error: string) => res.status(status
 
 /** Platform-only routes: the API key, never a signed-in person. */
 export function platformOnly(req: Request, res: Response, next: NextFunction) {
-  return currentCaller()?.kind === "system" ? next() : deny(res, 403, "Platform only");
+  const c = currentCaller();
+  return c?.kind === "system" && !c.keyId ? next() : deny(res, 403, "Platform only");
 }
 
 /** Members with one of these roles; the platform may act inside an organization it names. */

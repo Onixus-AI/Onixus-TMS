@@ -10,6 +10,7 @@ import { NavContext, type Intent, type Tab } from "./nav";
 import { Overview } from "./overview";
 import { Platform } from "./platform";
 import { Containers, Customers, Dispatch, Fleet, Loads, Problem } from "./trucking";
+import { OnixusLogo } from "./logo";
 
 export type Me = {
   user: { id: string; email: string };
@@ -28,20 +29,6 @@ const connectionReturn = (() => {
 
 const initials = (email: string) => email.split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join("") || "?";
 
-function Logo() {
-  return (
-    <svg className="logo" viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#7ee0c3" />
-          <stop offset="1" stopColor="#3987e5" />
-        </linearGradient>
-      </defs>
-      <circle cx="16" cy="16" r="11" fill="none" stroke="url(#lg)" strokeWidth="4" />
-      <rect x="13" y="3" width="6" height="9" rx="2" fill="url(#lg)" />
-    </svg>
-  );
-}
 
 function Account({ me }: { me: Me }) {
   const [open, setOpen] = useState(false);
@@ -64,7 +51,7 @@ function Shell({ me, children, tabs, tab, setTab }: { me: Me; children: React.Re
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <Logo />
+          <OnixusLogo />
           <div>
             <strong>Onixus</strong>
             <span className="org">{me.organization?.name ?? "Logistics OS"}</span>

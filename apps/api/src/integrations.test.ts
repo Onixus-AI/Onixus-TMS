@@ -30,7 +30,7 @@ test("webhook URLs typed in by a company only ever reach the public internet", (
 });
 
 test("AI key, Zapier, Slack, Google Calendar, Drive and Sheets: connected, checked and used", async () => {
-  // One stand-in for OpenRouter and Google (sign-in, Calendar, Drive, Sheets).
+  // One stand-in for the AI provider and Google (sign-in, Calendar, Drive, Sheets).
   const seen: { method: string; path: string; auth?: string; body: string }[] = [];
   const events = new Map<string, Record<string, unknown>>();
   const read = (req: IncomingMessage) => new Promise<Buffer>((ok) => { const b: Buffer[] = []; req.on("data", (c) => b.push(c)); req.on("end", () => ok(Buffer.concat(b))); });
@@ -81,7 +81,7 @@ test("AI key, Zapier, Slack, Google Calendar, Drive and Sheets: connected, check
   const files = { uploadUrl: async () => ({ path: "x", signedUrl: "x", token: "x" }), downloadUrl: async () => "x", download: async () => Buffer.from("%PDF-1.7 the bol") };
   const server = createApp({
     TMS_API_KEY: KEY, CONNECTIONS_SECRET: SECRET, WEB_ORIGIN: "https://app.test", API_PUBLIC_URL: "https://api.test", EMAIL_PROVIDER: "resend",
-    OPENROUTER_BASE_URL: `${up}/or`, GMAIL_CLIENT_ID: "g-client", GMAIL_CLIENT_SECRET: "g-secret", GOOGLE_TOKEN_URL: `${up}/google/token`,
+    OPENAI_BASE_URL: `${up}/or`, GMAIL_CLIENT_ID: "g-client", GMAIL_CLIENT_SECRET: "g-secret", GOOGLE_TOKEN_URL: `${up}/google/token`,
     GOOGLE_CALENDAR_API_URL: `${up}/cal`, GOOGLE_DRIVE_API_URL: `${up}/drive`, GOOGLE_UPLOAD_API_URL: `${up}/upload`, GOOGLE_SHEETS_API_URL: `${up}/sheets`,
   }, { store: () => store, verifyUser: async (t) => (t === "tok-owner" ? OWNER : null), files: () => files as never }).listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -100,10 +100,10 @@ test("AI key, Zapier, Slack, Google Calendar, Drive and Sheets: connected, check
 
   try {
     // AI: the company's key is checked, then answers the office's questions instead of Onixus's.
-    const ai = await call("POST", "/connections/openrouter", { api_key: "sk-or-company", model: "deepseek/deepseek-v4.1-flash" });
+    const ai = await call("POST", "/connections/openai", { api_key: "sk-or-company", model: "deepseek/deepseek-v4.1-flash" });
     assert.equal(ai.status, 201, JSON.stringify(ai.body));
     assert.equal(ai.body.detail, "deepseek/deepseek-v4.1-flash answered");
-    assert.equal(ai.body.connection.account, "OpenRouter · deepseek/deepseek-v4.1-flash");
+    assert.equal(ai.body.connection.account, "OpenAI · deepseek/deepseek-v4.1-flash");
     const asked = await call("POST", "/assistant/ask", { question: "What's on the road?" });
     assert.equal(asked.body.answer, "Two loads are on the road.");
     assert.ok(!JSON.stringify(store.tables.connections).includes("sk-or-company"), "the key is stored sealed");
