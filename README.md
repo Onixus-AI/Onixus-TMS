@@ -28,9 +28,10 @@ the load to "POD received" for billing.
 ## Drayage first
 
 **Delivery orders in, loads out.** Upload the delivery order or booking
-(PDF or photo) or paste the email; Claude reads it (customer, steamship
+(PDF or photo) or paste the email; the AI model reads it (customer, steamship
 line, B/L, pickup number, vessel and ETA, terminal, last free day, consignee,
-every container with size, type, weight and seal). You check the draft,
+every container with size, type, weight and seal); any of the AI providers
+can read it, and OpenRouter keeps it cheap. You check the draft,
 mistyped container numbers are flagged by their check digit, and one load per
 container is created and booked, with the customer, line, terminal and
 delivery site matched to what you already have or added.
@@ -82,7 +83,7 @@ change, never a code change.
 |---|---|---|
 | Email | `EMAIL_PROVIDER` | `gmail`, `microsoft` (Outlook.com, Outlook and Microsoft 365; alias `outlook`), `onyx` (Onyx Mail, coming soon) |
 | CRM | `CRM_PROVIDER` | `hubspot`, `onyx` (Onyx CRM, coming soon) |
-| AI model | `LLM_PROVIDER` | `claude` (default `claude-opus-5-5`), `openai`, `onyx` (OpenAI-compatible endpoint) |
+| AI model | `LLM_PROVIDER` | `claude` (default `claude-opus-5-5`), `openai`, `onyx` (OpenAI-compatible endpoint), `openrouter` (one key, many models; default `google/gemini-2.5-flash`, low cost) |
 | Database | `DATABASE_PROVIDER` | `supabase` |
 | GPS tracking | `TRACKING_PROVIDER` | `traccar`, `samsara` (coming soon), `motive` (coming soon) |
 

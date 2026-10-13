@@ -7,3 +7,4 @@ export { headerSafe } from "./email/oauth.js";
 export { GLOBAL_TABLES, memoryStore, scopedStore, storeFromEnv, supabaseStore, StoreError, type Row, type Store, type Where } from "./db/store.js";
 export { supabaseFiles, supabaseInvite, supabaseUser, type AuthUser, type FileStore, type SignedUpload } from "./files.js";
 export { fmcsa, judgeCarrier, type CarrierCheck, type ComplianceStatus } from "./compliance/fmcsa.js";
+export { openAiCompatible } from "./llm/openai.js";

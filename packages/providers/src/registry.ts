@@ -5,6 +5,7 @@ import { hubspot, HUBSPOT_VARS } from "./crm/hubspot.js";
 import { claude, CLAUDE_VARS } from "./llm/claude.js";
 import { openai, OPENAI_VARS } from "./llm/openai.js";
 import { onyxLlm, ONYX_LLM_VARS } from "./llm/onyx.js";
+import { openrouter, OPENROUTER_VARS } from "./llm/openrouter.js";
 import { SUPABASE_VARS } from "./db/supabase.js";
 import { traccar, TRACCAR_VARS } from "./tracking/traccar.js";
 import { NotImplementedError, type CrmProvider, type EmailProvider, type LlmProvider, type ProviderStatus, type TrackingProvider } from "./types.js";
@@ -28,6 +29,7 @@ export const LLM_PROVIDERS: Record<string, Entry<LlmProvider>> = {
   claude: { label: "Claude", vars: CLAUDE_VARS, make: claude },
   openai: { label: "OpenAI", vars: OPENAI_VARS, make: openai },
   onyx: { label: "Onyx", vars: ONYX_LLM_VARS, make: onyxLlm },
+  openrouter: { label: "OpenRouter", vars: OPENROUTER_VARS, make: openrouter },
 };
 export const DATABASE_PROVIDERS: Record<string, Entry<never>> = {
   supabase: { label: "Supabase", vars: SUPABASE_VARS },
