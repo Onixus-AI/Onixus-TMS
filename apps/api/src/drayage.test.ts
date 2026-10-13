@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
+import { createServer } from "node:http";
 import { memoryStore } from "@onixus/providers";
 import { createApp, type Deps } from "./app.js";
 
@@ -127,18 +128,50 @@ test("a delivery order becomes one booked load per container, matched to what we
   });
 });
 
-test("pasted email text works too; without Claude, reading says so plainly", async () => {
+test("pasted email text works too", async () => {
   await withApi(async (call) => {
     await setup(call);
     const r = await call("POST", "/delivery-orders/read", { text: "Please deliver CSQU3054383 40HC from APM to Edison DC, LFD 10/15" });
     assert.equal(r.status, 200);
     assert.equal((await call("POST", "/delivery-orders/read", {})).status, 400);
   });
-  await withApi(async (call) => {
-    const r = await call("POST", "/delivery-orders/read", { text: "anything" });
-    assert.equal(r.status, 501);
-    assert.match(r.body.error, /Reading delivery orders with openai/);
-  }, { readOrder: undefined }, { LLM_PROVIDER: "openai", OPENAI_API_KEY: "sk-test" });
+});
+
+test("with OpenRouter selected, the delivery order goes to OpenRouter as a PDF with the JSON Schema", async () => {
+  // A stand-in for OpenRouter's chat completions endpoint.
+  const seen: any[] = [];
+  const fake = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      seen.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body) });
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ id: "x", object: "chat.completion", created: 1, model: "google/gemini-2.5-flash",
+        choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "```json\n" + JSON.stringify(DO_JSON) + "\n```" } }] }));
+    });
+  }).listen(0);
+  const base = `http://127.0.0.1:${(fake.address() as AddressInfo).port}/api/v1`;
+  try {
+    await withApi(async (call) => {
+      await setup(call);
+      const up = (await call("POST", "/delivery-orders/upload-url", { file_name: "do.pdf", content_type: "application/pdf" })).body;
+      const r = await call("POST", "/delivery-orders/read", { path: up.path });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.equal(r.body.containers[0].container_number, "CSQU3054383");
+      const sent = seen[0];
+      assert.equal(sent.url, "/api/v1/chat/completions");
+      assert.equal(sent.auth, "Bearer or-test-key");
+      assert.equal(sent.body.model, "google/gemini-2.5-flash");
+      assert.equal(sent.body.response_format.type, "json_schema");
+      assert.equal(sent.body.response_format.json_schema.strict, true);
+      assert.deepEqual(sent.body.provider, { require_parameters: true });
+      const parts = sent.body.messages[1].content;
+      assert.equal(parts[0].type, "file");
+      assert.match(parts[0].file.file_data, /^data:application\/pdf;base64,/);
+    }, { readOrder: undefined }, { LLM_PROVIDER: "openrouter", OPENROUTER_API_KEY: "or-test-key", OPENROUTER_BASE_URL: base });
+  } finally {
+    fake.close();
+  }
 });
 
 test("drop and pick: the loaded leg and the empty go on different trips, in order", async () => {
