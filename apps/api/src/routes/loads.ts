@@ -8,6 +8,7 @@ import { defined, HttpError, isoDate, money, mustGet, text, uuid, type Ctx } fro
 import { listDocuments, recordDocument, uploadUrl } from "./documents.js";
 import { extrasFor } from "./overview.js";
 import { legsOf, placesFor, planLoadLegs, syncLoad } from "./legs.js";
+import { notify } from "./connections.js";
 
 export type Load = LoadFields & {
   id: string;
@@ -104,6 +105,7 @@ export async function moveLoad(ctx: Ctx, load: Load, to: LoadStatus, note?: stri
   const updated = await ctx.store().update<Load>("loads", load.id, patch, { status: load.status });
   if (!updated) throw new HttpError(409, `Load ${load.load_number ?? load.id} changed while you were working; reload and try again`);
   await ctx.store().insert("load_events", { load_id: load.id, from_status: load.status, to_status: to, note: note ?? null });
+  notify(ctx, "load.status_changed", { load_id: load.id, load_number: load.load_number ?? null, container: load.container_number ?? null, from: load.status, to });
   // Booking plans the legs; coming off hold catches up with legs already driven.
   if (to === "BOOKED") {
     await planLoadLegs(ctx, updated);
@@ -138,6 +140,7 @@ export function loadRoutes(ctx: Ctx) {
     const defaults = { hazmat: false, is_street_turn: false, ...(load.equipment_type === "CONTAINER" ? CONTAINER_DEFAULTS : {}) };
     const row = await ctx.store().insert<Load>("loads", { ...defaults, ...defined(load), status: "DRAFT" });
     await ctx.store().insert("load_events", { load_id: row.id, from_status: null, to_status: "DRAFT", note: "Created" });
+    notify(ctx, "load.created", { load_id: row.id, load_number: row.load_number ?? null, container: row.container_number ?? null, status: row.status });
     res.status(201).json({ load: row });
   });
 

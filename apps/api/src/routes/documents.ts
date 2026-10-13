@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { HttpError, text, type Ctx } from "../http.js";
 import { currentCaller } from "../auth.js";
+import { saveToDrive } from "./connections.js";
 import { moveLoad, type Load } from "./loads.js";
 
 export const DOCUMENT_KINDS = ["POD", "BOL", "RATE_CONFIRMATION", "PHOTO", "OTHER"] as const;
@@ -39,6 +40,9 @@ export async function recordDocument(ctx: Ctx, load: Load, body: unknown) {
     load_id: load.id, kind: doc.kind, path: doc.path, file_name: doc.file_name ?? null, content_type: doc.content_type ?? null,
     uploaded_by: c?.kind === "user" ? c.user.id : null,
   });
+  // A copy in the company's Google Drive, named so it sorts by load.
+  const ref = load.container_number ?? load.load_number ?? load.id.slice(0, 8);
+  saveToDrive(ctx, `${ref} · ${doc.kind} · ${doc.file_name ?? doc.path.split("/").pop()}`, () => ctx.files().download(doc.path), doc.content_type ?? "application/octet-stream");
   let updated = load;
   if (doc.kind === "POD" && load.status === "DELIVERED") updated = await moveLoad(ctx, load, "POD_RECEIVED", "Proof of delivery uploaded");
   return { document: row, load: updated };

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { LEG_NEXT, LEG_STARTED, LEG_STATUSES, moveTypeOf, planLegs, statusFromLegs, statusRank, type LegDraft, type LegStatus, type MoveType } from "@onixus/core";
 import { defined, HttpError, mustGet, text, type Ctx } from "../http.js";
+import { syncAppointment } from "./connections.js";
 import { moveLoad, type Load } from "./loads.js";
 
 // The legs of a container move (see packages/core/src/legs.ts): planned when
@@ -138,7 +139,20 @@ export function legRoutes(ctx: Ctx) {
   // Terminal appointment for this leg's pickup or return.
   r.patch("/legs/:id", async (req, res) => {
     const leg = await mustGet<Leg>(ctx, "load_legs", req.params.id, "Leg");
-    res.json({ leg: await ctx.store().update("load_legs", leg.id, defined(appointment.parse(req.body))) });
+    const patch = defined(appointment.parse(req.body));
+    const updated = await ctx.store().update<Leg>("load_legs", leg.id, patch);
+    // On the company's calendar too, when it connected one.
+    if ("appointment_at" in patch && updated) {
+      const load = await ctx.store().get<Load>("loads", leg.load_id);
+      const places = await placesFor(ctx, [updated]);
+      const name = (t?: string | null, l?: string | null) => (places[t ?? l ?? ""] as { label?: string } | undefined)?.label ?? "";
+      const from = name(updated.from_terminal_id, updated.from_location_id), to = name(updated.to_terminal_id, updated.to_location_id);
+      const ref = load?.container_number ?? load?.load_number ?? "Load";
+      syncAppointment(ctx, `leg:${updated.id}`, updated.appointment_at
+        ? { title: `${ref} · ${from || "pickup"} → ${to || "delivery"}`, description: [updated.appointment_number ? `Appointment #${updated.appointment_number}` : "", `Leg ${updated.seq} (${String(updated.cargo ?? "").toLowerCase()})`, "From Onixus Logistics OS"].filter(Boolean).join("\n"), start: updated.appointment_at, minutes: 60, location: from || undefined }
+        : null);
+    }
+    res.json({ leg: updated });
   });
 
   return r;
