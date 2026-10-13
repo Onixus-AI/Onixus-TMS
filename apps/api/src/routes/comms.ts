@@ -6,7 +6,7 @@ import { HttpError, mustGet, text, uuid, type Ctx } from "../http.js";
 import { legsOf, placesFor } from "./legs.js";
 import type { Load } from "./loads.js";
 import { overviewData } from "./overview.js";
-import { connected } from "./connections.js";
+import { aiFor, connected, notify } from "./connections.js";
 
 // Email and AI for the office. Emails go out through the platform's mailbox
 // under the company's name, with replies to the dispatcher who sent them,
@@ -124,7 +124,7 @@ export function commsFor(ctx: Ctx) {
     const { orgId } = caller();
     spendAi(orgId);
     const [data, company] = await Promise.all([snapshot(), orgName(orgId)]);
-    const ai = ctx.ai();
+    const ai = await aiFor(ctx);
     const system = [
       `You are Onixus, the operations assistant for ${company}, a trucking and drayage company. You answer dispatchers' and owners' questions about their loads, containers, drivers' work and money.`,
       "Answer only from the JSON data the user message gives you. If the answer is not in it, say what is missing; never guess numbers, dates or container numbers.",
@@ -154,7 +154,7 @@ export function commsFor(ctx: Ctx) {
       clocks: risk.level === "NONE" ? null : { reason: risk.reason, demurrage: risk.demurrage, per_diem: risk.perDiem },
       legs: legs.filter((l) => l.status !== "CANCELED").map((l) => ({ seq: l.seq, cargo: l.cargo, status: l.status, from: placeName(l.from_terminal_id, l.from_location_id), to: placeName(l.to_terminal_id, l.to_location_id), appointment: l.appointment_at })),
     }).filter(([, v]) => v != null && v !== ""));
-    const ai = ctx.ai();
+    const ai = await aiFor(ctx);
     const schema = { type: "object", additionalProperties: false, required: ["subject", "body"], properties: { subject: { type: "string" }, body: { type: "string" } } };
     const system = [
       `Write an email from ${company}, a drayage and trucking company, to its customer ${customer?.company_name ?? ""}.`.trim(),
@@ -222,6 +222,7 @@ export function commsRoutes(ctx: Ctx) {
     const note = b.note || `Please find invoice ${number}${ref ? ` for ${ref}` : ""} below. Reply to this email with any questions.`;
     const email = await send({ to, subject: `Invoice ${number}${ref ? ` · ${ref}` : ""} from ${company}`, html: emailHtml(note, company, invoiceTable(inv)), body: note, load_id: inv.load_id, invoice_id: inv.id });
     const updated = inv.status === "DRAFT" ? await ctx.store().update("invoices", inv.id, { status: "SENT" }, { status: "DRAFT" }) : inv;
+    notify(ctx, "invoice.sent", { invoice_id: inv.id, invoice_number: number, amount: inv.amount, to, load_id: inv.load_id, container: load?.container_number ?? null });
     res.status(201).json({ email, invoice: updated ?? inv });
   });
 

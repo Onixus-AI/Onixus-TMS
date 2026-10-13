@@ -4,6 +4,7 @@ import { z } from "zod";
 import { CONTAINER_DEFAULTS, CONTAINER_SIZES, CONTAINER_TYPES, containerNumberProblem, MOVE_TYPES, normalizeContainerNumber } from "@onixus/core";
 import { HttpError, isoDate, money, text, uuid, type Ctx } from "../http.js";
 import { currentCaller } from "../auth.js";
+import { notify } from "./connections.js";
 import { moveLoad, type Load } from "./loads.js";
 
 // Delivery orders. Drayage work arrives as a delivery order (import) or a
@@ -263,6 +264,7 @@ export function orderRoutes(ctx: Ctx) {
         }
       }
       created.push(final);
+      notify(ctx, "load.created", { load_id: final.id, load_number: final.load_number ?? null, container: final.container_number ?? null, status: final.status, source: "delivery_order" });
     }
     res.status(201).json({ loads: created, problems });
   });

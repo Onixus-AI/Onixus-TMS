@@ -9,7 +9,11 @@ export { GLOBAL_TABLES, memoryStore, scopedStore, storeFromEnv, supabaseStore, S
 export { supabaseFiles, supabaseInvite, supabaseUser, type AuthUser, type FileStore, type SignedUpload } from "./files.js";
 export { fmcsa, judgeCarrier, type CarrierCheck, type ComplianceStatus } from "./compliance/fmcsa.js";
 export { openAiCompatible } from "./llm/openai.js";
-export { CATEGORIES, CONNECTORS, connector, oauthReady, authorizeUrl, exchangeCode, type Category, type Connector, type Credentials, type Field, type TokenSet } from "./connect/catalog.js";
+export { CATEGORIES, CONNECTORS, connector, oauthReady, authorizeUrl, exchangeCode, type Built, type Category, type Connector, type Credentials, type Field, type TokenSet } from "./connect/catalog.js";
+export { checkWebhookUrl, isPublicIp, postJson, webhookAutomation, webhookPoster, type Automation, type AutomationEvent } from "./automation/webhook.js";
+export { eventId, googleCalendar, type Calendar, type CalendarEvent } from "./calendar/google.js";
+export { slack, type Chat } from "./chat/slack.js";
+export { googleDrive, googleSheets, LOG_HEADER, type Documents, type Sheet } from "./google/workspace.js";
 export { seal, unseal, signToken, verifyToken } from "./connect/crypto.js";
 export { samsara } from "./tracking/samsara.js";
 export { motive } from "./tracking/motive.js";

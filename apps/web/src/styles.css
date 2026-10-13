@@ -454,3 +454,9 @@ main { min-width: 0; }
 .m-motive { background: linear-gradient(135deg, #3b82f6, #1e3a8a); }
 .m-traccar { background: linear-gradient(135deg, #607d8b, #37474f); }
 .m-veltra { background: linear-gradient(135deg, var(--mint), var(--accent)); color: #06121f; }
+.m-openai { background: linear-gradient(135deg, #2b2b2b, #0d0d0d); font-size: 13px; letter-spacing: 0.02em; }
+.m-slack { background: linear-gradient(135deg, #611f69, #3f0e40); font-size: 19px; }
+.m-teams { background: linear-gradient(135deg, #6264a7, #464775); }
+/* A real logo sits on a light tile, the way app icons do, so every brand colour reads on the dark page. */
+.mark.logo { background: linear-gradient(160deg, #ffffff, #e9edf2); }
+.mark.logo svg { width: 22px; height: 22px; }

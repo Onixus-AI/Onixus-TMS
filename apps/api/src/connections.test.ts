@@ -81,7 +81,11 @@ test("a company connects its own GPS, CRM, mailbox and books, and the app uses t
     const list = (await call("GET", "/connections")).body;
     assert.equal(list.encryption, true);
     const ids = Object.fromEntries(list.categories.map((c: any) => [c.category, c.providers.map((p: any) => p.id)]));
-    assert.deepEqual(ids, { email: ["gmail", "outlook", "veltra"], crm: ["hubspot", "veltra-crm"], finance: ["quickbooks", "veltrafi"], tracking: ["samsara", "motive", "traccar"] });
+    assert.deepEqual(ids, {
+      email: ["gmail", "outlook", "veltra"], crm: ["hubspot", "veltra-crm"], finance: ["quickbooks", "veltrafi"], tracking: ["samsara", "motive", "traccar"],
+      ai: ["openai", "anthropic", "gemini", "openrouter"], automation: ["zapier", "make", "n8n"], chat: ["slack", "microsoft-teams"],
+      calendar: ["google-calendar", "outlook-calendar", "google-meet"], documents: ["google-drive", "google-docs"], reports: ["google-sheets"],
+    });
     assert.equal(list.categories[0].providers[1].ready, false, "Outlook needs Onixus's Microsoft app first");
     assert.equal((await call("POST", "/connections/veltra-crm", {})).status, 409);
 

@@ -2,16 +2,16 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import {
   authorizeUrl, CATEGORIES, connector, CONNECTORS, exchangeCode, oauthReady, scopedStore, seal, signToken, unseal, verifyToken,
-  type Category, type Connector, type CrmProvider, type EmailProvider, type FinanceProvider, type TrackingProvider,
+  type Automation, type Built, type Calendar, type Category, type Chat, type Documents, type Sheet, type Connector, type CrmProvider, type EmailProvider, type LlmProvider, type TrackingProvider,
 } from "@onixus/providers";
 import { HttpError, type Ctx } from "../http.js";
 
-// Each company's own connections: its mailbox, CRM, books and GPS. Owners
+// Each company's own connections: its mailbox, CRM, books, GPS, AI key,
+// automations and calendar. Owners
 // connect and disconnect; everyone in the office sees what is connected.
 // Credentials are sealed before they are stored and never sent back.
 
 type ConnectionRow = { id: string; org_id: string; category: Category; provider: string; account: string | null; secret: string; status: "CONNECTED" | "ERROR"; last_error: string | null; connected_by: string | null; created_at: string; updated_at: string };
-type Built = { email: EmailProvider; crm: CrmProvider; finance: FinanceProvider; tracking: TrackingProvider };
 
 const secretOf = (ctx: Ctx) => ctx.env.CONNECTIONS_SECRET?.trim() ?? "";
 
@@ -57,6 +57,56 @@ export async function connected<C extends Category>(ctx: Ctx, category: C): Prom
   return built;
 }
 
+/** The company's own AI model when it connected one, otherwise Onixus's. */
+export async function aiFor(ctx: Ctx): Promise<LlmProvider> {
+  return (await connected(ctx, "ai")) ?? ctx.ai();
+}
+
+/** Mark a connection broken, with why, so the owner sees it on Connections. */
+async function failed(ctx: Ctx, category: Category, e: unknown) {
+  const row = await rowFor(ctx, category).catch(() => null);
+  if (row) await ctx.store().update("connections", row.id, { status: "ERROR", last_error: (e instanceof Error ? e.message : String(e)).slice(0, 500) }).catch(() => {});
+}
+
+/** One line for people (Slack) about an event. */
+export function eventText(event: string, d: Record<string, unknown>): string {
+  const ref = [d.load_number, d.container].filter(Boolean).join(" · ") || "A load";
+  if (event === "load.created") return `📦 New load ${ref}${d.source === "delivery_order" ? " from a delivery order" : ""}`;
+  if (event === "load.status_changed") return `🚚 ${ref}: ${String(d.from ?? "").toLowerCase().replace(/_/g, " ")} → ${String(d.to ?? "").toLowerCase().replace(/_/g, " ")}`;
+  if (event === "invoice.sent") return `🧾 Invoice ${d.invoice_number ?? ""} for $${Number(d.amount ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })} sent to ${d.to ?? "the customer"}${d.container ? ` (${d.container})` : ""}`;
+  return `${event} · ${ref}`;
+}
+
+/**
+ * Tell the company's connected tools something happened: its automation
+ * (Zapier, Make, n8n) gets the event as JSON, its chat (Slack) a line, and
+ * its load log (Google Sheets) a row. Never slows or fails the request; a
+ * tool that fails is marked "Needs attention" on Connections.
+ */
+export function notify(ctx: Ctx, event: string, data: Record<string, unknown>) {
+  const c = ctx.caller();
+  const company_id = c?.kind === "system" ? c.orgId : c?.member?.org_id;
+  const at = ctx.now().toISOString();
+  void connected(ctx, "automation").then((a) => a?.send({ event, at, company_id: company_id ?? null, data })).catch((e) => failed(ctx, "automation", e));
+  void connected(ctx, "chat").then((ch) => ch?.send(eventText(event, data))).catch((e) => failed(ctx, "chat", e));
+  const details = event === "invoice.sent" ? `Invoice ${data.invoice_number ?? ""} · $${data.amount ?? ""} · ${data.to ?? ""}` : String(data.source ?? "");
+  void connected(ctx, "reports")
+    .then((s) => s?.append([at, event, (data.load_number as string) ?? "", (data.container as string) ?? "", (data.from as string) ?? "", (data.to as string) ?? (data.status as string) ?? "", details]))
+    .catch((e) => failed(ctx, "reports", e));
+}
+
+/** Copy a load document to the company's Drive. Never fails the upload. */
+export function saveToDrive(ctx: Ctx, name: string, read: () => Promise<Buffer>, mimeType: string) {
+  void connected(ctx, "documents").then(async (d) => (d ? d.save(name, await read(), mimeType) : undefined)).catch((e) => failed(ctx, "documents", e));
+}
+
+/** Put a leg's appointment on the company's calendar, move it, or take it off. Never fails the request. */
+export function syncAppointment(ctx: Ctx, key: string, event: Parameters<Calendar["upsert"]>[1] | null) {
+  void connected(ctx, "calendar")
+    .then((cal) => (cal ? (event ? cal.upsert(key, event) : cal.remove(key)) : undefined))
+    .catch((e) => failed(ctx, "calendar", e));
+}
+
 async function save(ctx: Ctx, c: Connector, account: string, creds: Record<string, string>, who: { email: string }) {
   const store = ctx.store();
   const existing = await rowFor(ctx, c.category);
@@ -77,6 +127,19 @@ const webOrigin = (ctx: Ctx) => (ctx.env.WEB_ORIGIN ?? "http://localhost:5173").
 async function check(category: Category, provider: unknown) {
   if (category === "tracking") return `${(await (provider as TrackingProvider).positions()).length} vehicle(s) reporting`;
   if (category === "crm") return (await (provider as CrmProvider).searchCompanies("a", 1), "CRM reachable");
+  if (category === "ai") {
+    const p = provider as LlmProvider;
+    await p.complete({ prompt: "Reply with the single word OK.", maxTokens: 20 });
+    return `${p.model} answered`;
+  }
+  if (category === "automation") {
+    await (provider as Automation).send({ event: "connection.test", at: new Date().toISOString(), company_id: null, data: { message: "Onixus Logistics OS is connected. Load and invoice events will arrive here." } });
+    return "Test event delivered";
+  }
+  if (category === "calendar") return `Calendar “${await (provider as Calendar).check()}” reachable`;
+  if (category === "chat") return (await (provider as Chat).send("✅ Onixus Logistics OS is connected. Load and invoice updates will appear here."), "Test message posted");
+  if (category === "documents") return (provider as Documents).check();
+  if (category === "reports") return `Load log ready: ${await (provider as Sheet).check()}`;
   return "ready";
 }
 
@@ -126,16 +189,22 @@ export function connectionRoutes(ctx: Ctx) {
     const who = mustOwn(ctx);
     const c = connector(req.params.provider);
     if (!c || c.method !== "fields" || !c.build) throw new HttpError(c?.method === "soon" ? 409 : 404, c?.method === "soon" ? `${c.label} is coming soon` : "Unknown connection");
-    const shape = Object.fromEntries((c.fields ?? []).map((f) => [f.name, z.string().trim().min(1, `${f.label} is required`).max(4000)]));
-    const creds = z.object(shape).parse(req.body ?? {}) as Record<string, string>;
+    const shape = Object.fromEntries((c.fields ?? []).map((f) => {
+      let s = z.string().trim().max(4000);
+      if (f.pattern) s = s.regex(new RegExp(f.pattern), f.hint ?? `${f.label} doesn't look right`);
+      return [f.name, f.optional ? z.union([z.literal(""), s]).optional() : s.min(1, `${f.label} is required`)];
+    }));
+    const creds = Object.fromEntries(Object.entries(z.object(shape).parse(req.body ?? {}) as Record<string, string | undefined>).filter(([, v]) => v)) as Record<string, string>;
     if (creds.url) creds.url = z.string().url("Server URL must start with https://").parse(creds.url).replace(/\/$/, "");
-    let detail: string;
+    let detail: string, built: { model?: string };
     try {
-      detail = await check(c.category, c.build(ctx.env, creds));
+      built = c.build(ctx.env, creds) as { model?: string };
+      detail = await check(c.category, built);
     } catch (e) {
       throw new HttpError(422, `${c.label} didn't accept that: ${e instanceof Error ? e.message : String(e)}`);
     }
-    const row = await save(ctx, c, creds.url ? new URL(creds.url).host : `${c.label} account`, creds, who);
+    const account = creds.url ? new URL(creds.url).host : c.category === "ai" && built.model ? `${c.label} · ${built.model}` : `${c.label} account`;
+    const row = await save(ctx, c, account, creds, who);
     res.status(201).json({ connection: shown(row!), detail });
   });
 
