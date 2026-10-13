@@ -88,7 +88,7 @@ export const CONNECTORS: Connector[] = [
     },
     build: (env, c, hooks) => microsoft({ ...env, MS_REFRESH_TOKEN: c.refresh_token, MS_SCOPE: "offline_access Mail.Send User.Read" }, hooks),
   },
-  { id: "veltra-mail", category: "email", label: "Veltra Mail", by: "Onixus", blurb: "Onixus's own mail, built for dispatch.", method: "soon" },
+  { id: "onyx-mail", category: "email", label: "Onyx Mail", by: "Onixus", blurb: "The AI inbox: cleans itself, answers, quotes, files DOs and BOLs into Onixus, follows up.", method: "soon" },
 
   {
     id: "hubspot", category: "crm", label: "HubSpot", blurb: "New customers are added to HubSpot as companies; sync existing ones with a click.", method: "fields",
