@@ -96,7 +96,7 @@ export function MovesChart({ data }: { data: Point[] }) {
             <text x={pad.left - 8} y={y(t)} className="tick" textAnchor="end" dominantBaseline="middle">{t}</text>
           </g>
         ))}
-        {data.map((d, i) => (i % labelEvery === 0 || i === data.length - 1) && (data.length - 1 - i >= labelEvery / 2 || i === data.length - 1) ? (
+        {data.map((d, i) => (i === data.length - 1 || (i % labelEvery === 0 && x(data.length - 1) - x(i) >= 64)) ? (
           <text key={d.date} x={x(i)} y={height - 6} className="tick" textAnchor={i === 0 ? "start" : i === data.length - 1 ? "end" : "middle"}>{fmtDay(d.date)}</text>
         ) : null)}
         {SERIES.map((s) => (

@@ -46,7 +46,7 @@ function Pipeline({ p }: { p: Overview["pipeline"] }) {
   return (
     <div className="pipeline" aria-label="Where today's loads are">
       {parts.map((x) => (
-        <div key={x.label} className="pipe" style={{ flexGrow: Math.max(x.n, total ? total * 0.12 : 1) }}>
+        <div key={x.label} className="pipe" style={{ flexGrow: Math.max(x.n, total ? total * 0.3 : 1) }}>
           <span className="pipe-label">{x.label}</span>
           <span className={`pipe-bar ${x.cls}`}>{x.n} <small>· {pct(x.n, total)}%</small></span>
         </div>
@@ -58,7 +58,7 @@ function Pipeline({ p }: { p: Overview["pipeline"] }) {
 function Kpi({ value, label, note, tone }: { value: string; label: string; note?: string; tone?: "up" | "down" | "alert" }) {
   return (
     <div className="kpi">
-      {note && <span className={`kpi-note ${tone ?? ""}`}>{tone === "up" ? "↗ " : tone === "down" ? "↘ " : tone === "alert" ? "● " : ""}{note}</span>}
+      {<span className={`kpi-note ${tone ?? ""}`}>{tone === "up" ? "↗ " : tone === "down" ? "↘ " : tone === "alert" ? "● " : ""}{note}</span>}
       <span className="kpi-value">{value}</span>
       <span className="kpi-label">{label}</span>
     </div>
@@ -94,7 +94,7 @@ export function Overview({ me }: { me: Me }) {
         </div>
         <div className="kpis">
           <Kpi value={String(k.containers)} label="Containers in play" />
-          <Kpi value={usd(k.at_risk.amount).replace(/\.00$/, "")} label="Demurrage & per diem running" note={k.at_risk.containers ? `${k.at_risk.containers} container${k.at_risk.containers === 1 ? "" : "s"}` : "Nothing accruing"} tone={k.at_risk.containers ? "alert" : undefined} />
+          <Kpi value={usd(k.at_risk.amount).replace(/\.00$/, "")} label="Demurrage & per diem" note={k.at_risk.containers ? `${k.at_risk.containers} container${k.at_risk.containers === 1 ? "" : "s"}` : "Nothing accruing"} tone={k.at_risk.containers ? "alert" : undefined} />
           <Kpi value={String(k.moves_today)} label="Moves done today" note={diff === 0 ? "Same as yesterday" : `${Math.abs(diff)} ${diff > 0 ? "more" : "fewer"} than yesterday`} tone={diff > 0 ? "up" : diff < 0 ? "down" : undefined} />
           <Kpi value={usd(k.ready_to_invoice.amount).replace(/\.00$/, "")} label="Ready to invoice" note={`${k.ready_to_invoice.count} load${k.ready_to_invoice.count === 1 ? "" : "s"}`} />
         </div>
@@ -180,7 +180,7 @@ export function Overview({ me }: { me: Me }) {
                   </div>
                   <strong className="mono">{a.container_number ?? "No container yet"}</strong>
                   <span className="small">{a.reason}</span>
-                  <span className="muted small">{[a.customer, a.amount ? `${usd(a.amount)} so far` : a.last_free_day ? `LFD ${a.last_free_day}` : null].filter(Boolean).join(" · ")}</span>
+                  <span className="muted small">{[a.customer, a.amount ? `${usd(a.amount).replace(/\.00$/, "")} so far` : a.last_free_day ? `LFD ${a.last_free_day}` : null].filter(Boolean).join(" · ")}</span>
                 </button>
               ))}
             </div>

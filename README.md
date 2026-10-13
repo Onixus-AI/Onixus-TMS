@@ -59,6 +59,8 @@ consignee.
 | Port data | Signed webhook that updates terminal availability, holds, fees and the LFD on open imports. |
 | FMCSA | Checks a broker or carrier's authority, safety rating and insurance; daily re-check endpoint. |
 | Rates and billing | Lane tariffs (customer-specific first, fuel surcharge as a percent); invoices with line haul, accessorials, demurrage and per diem. |
+| Drayage extras | Chassis days, prepull, yard storage, waiting time, overweight and hazmat, worked out from each move's clocks and legs and priced from the company's rate card. Suggested on every invoice; the dispatcher can edit or drop them. |
+| Overview | The office dashboard: where loads are, money accruing on containers, moves per day, legs without a truck, and what needs attention. |
 | GPS | Live truck positions from Traccar. |
 
 ### Built on open source, not rebuilt
@@ -141,7 +143,9 @@ fix (for example every reason a trip can't be dispatched).
 | `GET/POST /loads`, `GET/PATCH /loads/:id` | Load board, filter by `status` and `equipment_type` |
 | `POST /loads/:id/status` | `{status, note?}`, lifecycle-checked |
 | `POST /loads/:id/empty-returned` | Stops per diem |
-| `POST /loads/:id/invoice` | `{accessorials?, include_container_charges?}` |
+| `POST /loads/:id/invoice` | `{accessorials?, include_container_charges?}`; without `accessorials` the earned extras are billed |
+| `GET /overview?days=7\|30` | Dashboard numbers |
+| `GET/PUT /rate-card`, `GET /loads/:id/extras` | Prices for extras (owners change them) and what a load has earned |
 | `GET/POST /drivers`, `/trucks`, `/trailers`; `PATCH …/:id` | Fleet (trailers include chassis) |
 | `POST /dispatch` | `{leg_ids or load_ids, driver_id, truck_id, trailer_id?}` |
 | `GET /trips`, `GET /trips/:id`, `POST /trips/:id/status`, `POST /trips/:id/events` | Dispatch, complete or cancel a trip; check calls |

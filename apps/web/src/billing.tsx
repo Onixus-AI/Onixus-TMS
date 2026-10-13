@@ -114,7 +114,7 @@ export function Billing({ owner }: { owner: boolean }) {
   };
   return (
     <div className="stack page">
-      <div className="page-title"><h1>Billing</h1><p className="muted">Check the extras each move earned, then invoice.</p></div>
+      <div className="page-title"><div><h1>Billing</h1><p className="muted">Check the extras each move earned, then invoice.</p></div></div>
       <section className="panel stack">
         <div className="panel-head"><h2>Ready to invoice</h2><span className="muted small">{ready.data?.loads.length ?? 0} delivered</span></div>
         <Problem error={ready.error} />
