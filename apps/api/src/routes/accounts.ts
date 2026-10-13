@@ -14,6 +14,8 @@ const customer = z.object({
   mc_number: z.string().regex(/^\d{1,8}$/, "MC number is digits only").nullish(),
   dot_number: z.string().regex(/^\d{1,8}$/, "DOT number is digits only").nullish(),
   scac_code: z.string().trim().toUpperCase().regex(/^[A-Z]{2,4}$/, "SCAC is 2-4 capital letters").nullish(),
+  /** Where load updates and invoices go. */
+  email: z.string().trim().toLowerCase().email().max(254).nullish(),
   credit_limit: money.optional(),
   payment_terms: text(40).optional(),
   brokerage_commission_pct: z.number().min(0).max(100).nullish(),

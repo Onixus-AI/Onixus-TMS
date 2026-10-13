@@ -1,6 +1,7 @@
 import { fetchJson, requireVars, type Env } from "../env.js";
 import { ProviderError, type EmailMessage, type EmailProvider, type SendEmail } from "../types.js";
 import { headerSafe, RefreshTokenAuth } from "./oauth.js";
+import { fromWithName } from "./resend.js";
 
 export const GMAIL_VARS = ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "GMAIL_SENDER"] as const;
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -48,7 +49,7 @@ export function gmail(env: Env): EmailProvider {
   return {
     name: "gmail",
     async send(m) {
-      const r = await call<{ id: string }>("/messages/send", { method: "POST", body: JSON.stringify({ raw: gmailRaw(v.GMAIL_SENDER, m) }) });
+      const r = await call<{ id: string }>("/messages/send", { method: "POST", body: JSON.stringify({ raw: gmailRaw(fromWithName(v.GMAIL_SENDER, m.fromName), m) }) });
       return { id: r.id };
     },
     async listUnread(limit) {

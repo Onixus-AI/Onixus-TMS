@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AuthUser, CarrierCheck, Env, Extraction, FileStore, Store, TrackingProvider } from "@onixus/providers";
+import type { AuthUser, CarrierCheck, EmailProvider, Env, Extraction, FileStore, LlmProvider, Store, TrackingProvider } from "@onixus/providers";
 
 export const ROLES = ["OWNER", "DISPATCHER", "DRIVER"] as const;
 export type Role = (typeof ROLES)[number];
@@ -25,6 +25,10 @@ export type Ctx = {
   verifyUser: (token: string) => Promise<AuthUser | null>;
   inviteUser: (email: string, redirectTo?: string) => Promise<"sent" | "existing_user">;
   files: () => FileStore;
+  /** The mailbox companies' emails go out through (the platform's, under the company's name). */
+  mailer: () => EmailProvider;
+  /** The AI model behind the assistant and email drafts. */
+  ai: () => LlmProvider;
   /** Read a delivery order (file and/or text) into JSON with the AI model. */
   readOrder: (request: Extraction) => Promise<unknown>;
 };
