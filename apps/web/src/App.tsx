@@ -4,6 +4,7 @@ import { api } from "./api";
 import { arrivedFrom, authConfigured, supabase } from "./supabase";
 import { ChoosePassword, Onboarding, SignIn, Team } from "./account";
 import { Billing } from "./billing";
+import { ConnectionsPage } from "./connections";
 import { DriverApp } from "./driver";
 import { NavContext, type Intent, type Tab } from "./nav";
 import { Overview } from "./overview";
@@ -15,6 +16,15 @@ export type Me = {
   membership: { role: "OWNER" | "DISPATCHER" | "DRIVER"; driver_id: string | null } | null;
   organization: { name: string; kind: string } | null;
 };
+
+// Back from a provider's sign-in (Gmail, Outlook, QuickBooks): read once at load, then tidy the address bar.
+const connectionReturn = (() => {
+  const q = new URLSearchParams(window.location.search);
+  const ok = q.get("connected"), err = q.get("connection_error");
+  if (!ok && !err) return null;
+  window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+  return ok ? { ok: true, text: `Connected ${ok.replace(/^\w/, (c) => c.toUpperCase())}.` } : { ok: false, text: err! };
+})();
 
 const initials = (email: string) => email.split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join("") || "?";
 
@@ -78,7 +88,8 @@ function Office({ me }: { me: Me }) {
   const owner = me.membership?.role === "OWNER";
   const drives = Boolean(me.membership?.driver_id);
   // Owner-operators mostly drive: open on their trips.
-  const [tab, setTab] = useState<Tab>(me.organization?.kind === "OWNER_OPERATOR" && drives ? "mytrips" : "overview");
+  const returned = connectionReturn;
+  const [tab, setTab] = useState<Tab>(returned ? "connections" : me.organization?.kind === "OWNER_OPERATOR" && drives ? "mytrips" : "overview");
   const [intent, setIntent] = useState<Intent>({});
   const go = useCallback((t: Tab, i: Intent = {}) => {
     setIntent(i);
@@ -89,6 +100,7 @@ function Office({ me }: { me: Me }) {
     ["overview", "Overview"],
     ...(drives ? ([["mytrips", "My trips"]] as [Tab, string][]) : []),
     ["loads", "Loads"], ["dispatch", "Dispatch"], ["containers", "Containers"], ["billing", "Billing"], ["fleet", "Fleet"], ["customers", "Customers"],
+    ["connections", "Connections"],
     ...(owner ? ([["team", "Team"], ["platform", "Platform"]] as [Tab, string][]) : []),
   ];
   return (
@@ -103,6 +115,7 @@ function Office({ me }: { me: Me }) {
         {tab === "fleet" && <Fleet />}
         {tab === "customers" && <Customers />}
         {tab === "team" && <Team />}
+        {tab === "connections" && <ConnectionsPage owner={owner} notice={returned} />}
         {tab === "platform" && <Platform />}
       </Shell>
     </NavContext.Provider>

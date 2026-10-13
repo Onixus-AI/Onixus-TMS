@@ -3,7 +3,7 @@ import { createContext, useContext } from "react";
 // Moving between office screens from anywhere: a dashboard card opens a load,
 // a quick action opens the delivery-order import, and so on.
 
-export type Tab = "overview" | "loads" | "dispatch" | "containers" | "billing" | "fleet" | "customers" | "team" | "mytrips" | "platform";
+export type Tab = "overview" | "loads" | "dispatch" | "containers" | "billing" | "fleet" | "customers" | "team" | "connections" | "mytrips" | "platform";
 /** What to open on arrival: a load's details, or the delivery-order import. */
 export type Intent = { loadId?: string; importOrder?: boolean };
 

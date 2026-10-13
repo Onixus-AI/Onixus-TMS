@@ -6,6 +6,7 @@ import {
 import { api, ApiError, apiBase, uploadDocument } from "./api";
 import { useNav } from "./nav";
 import { EmailComposer, EmailLog } from "./comms";
+import { providerLabel, useConnections } from "./connections";
 import { DoImport, legLabel, legRoute, LegsPanel, MoveFields, PlacesSection, splitPlace, type Leg, type Place } from "./drayage";
 
 // Dispatcher screens: loads, dispatch, containers, fleet, customers. Every
@@ -561,13 +562,14 @@ export function Fleet() {
 
 const CUSTOMER_TYPES = ["SHIPPER", "MANUFACTURER", "BROKER", "FREIGHT_FORWARDER", "STEAMSHIP_LINE", "DEPOT", "WAREHOUSE", "PORT_TERMINAL", "CHASSIS_POOL"];
 
-function CustomerCard({ c, onChange }: { c: Row; onChange: () => void }) {
+function CustomerCard({ c, onChange, crmName }: { c: Row; onChange: () => void; crmName: string | null }) {
   const detail = useGet<{ locations: Row[] }>(`/customers/${c.id}`);
   const action = useAction(() => {
     detail.reload();
     onChange();
   });
   const [check, setCheck] = useState<{ status: string; reasons: string[] } | null>(null);
+
   const addLocation = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -585,6 +587,12 @@ function CustomerCard({ c, onChange }: { c: Row; onChange: () => void }) {
         <Field label="Email for updates and invoices"><input name="email" type="email" defaultValue={c.email ?? ""} placeholder="ops@customer.com" /></Field>
         <button type="submit" disabled={action.busy}>Save</button>
       </form>
+      {(crmName || c.crm_ref) && (
+        <div className="actions">
+          {c.crm_ref ? <span className="chip s-mint"><i />In {crmName ?? "CRM"}</span>
+            : <button disabled={action.busy} onClick={() => action.run(() => api(`/customers/${c.id}/crm-sync`, { method: "POST" }))}>Add to {crmName}</button>}
+        </div>
+      )}
       {c.dot_number && (
         <div className="actions">
           <button disabled={action.busy} onClick={() => action.run(async () => setCheck(await api(`/customers/${c.id}/fmcsa-check`, { method: "POST" })))}>Check FMCSA</button>
@@ -607,6 +615,8 @@ function CustomerCard({ c, onChange }: { c: Row; onChange: () => void }) {
 
 export function Customers() {
   const { data, error, reload } = useGet<{ customers: Row[] }>("/customers");
+  const conns = useConnections();
+  const crm = conns.of("crm");
   const action = useAction(reload);
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -631,7 +641,7 @@ export function Customers() {
         <button type="submit" className="primary" disabled={action.busy}>Add customer</button>
       </form>
       <Problem error={error} />
-      <ul className="list cards">{data?.customers.map((c) => <CustomerCard key={c.id} c={c} onChange={reload} />)}</ul>
+      <ul className="list cards">{data?.customers.map((c) => <CustomerCard key={c.id} c={c} onChange={reload} crmName={crm ? providerLabel(conns.data, crm.provider) : null} />)}</ul>
     </div>
   );
 }

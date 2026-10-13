@@ -436,3 +436,21 @@ main { min-width: 0; }
 .ask-input:focus-within { border-color: var(--accent); }
 .ask-input .send { width: 36px; height: 36px; padding: 0; flex: none; background: linear-gradient(135deg, var(--mint), var(--accent)); color: #06121f; border: none; font-size: 16px; }
 .mcp code { background: var(--panel-2); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }
+
+/* ── Connections ───────────────────────────────────────────────────────── */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.tile { display: grid; gap: 10px; align-content: start; padding: 16px; border-radius: 18px; background: var(--panel-2); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+.tile.on { border-color: rgba(142, 230, 201, 0.45); background: linear-gradient(160deg, rgba(142, 230, 201, 0.09), rgba(255, 255, 255, 0.03)); }
+.tile.soon { opacity: 0.75; }
+.tile-head { display: flex; align-items: center; gap: 12px; }
+.tile-name { display: grid; flex: 1; min-width: 0; }
+.tile .text { color: var(--text); }
+.mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; font-weight: 700; font-size: 16px; flex: none; color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 14px -6px rgba(0, 0, 0, 0.8); }
+.m-gmail { background: linear-gradient(135deg, #ea4335, #c5221f); }
+.m-outlook { background: linear-gradient(135deg, #2b88d8, #0f5fa8); }
+.m-hubspot { background: linear-gradient(135deg, #ff7a59, #e2522f); }
+.m-qb { background: linear-gradient(135deg, #2ca01c, #1d7a12); font-size: 14px; text-transform: lowercase; }
+.m-samsara { background: linear-gradient(135deg, #3d4b5c, #1f2730); }
+.m-motive { background: linear-gradient(135deg, #3b82f6, #1e3a8a); }
+.m-traccar { background: linear-gradient(135deg, #607d8b, #37474f); }
+.m-veltra { background: linear-gradient(135deg, var(--mint), var(--accent)); color: #06121f; }

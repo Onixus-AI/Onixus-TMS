@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { EQUIPMENT_LABELS } from "@onixus/core";
 import { api } from "./api";
 import { useComms } from "./comms";
+import { providerLabel, useConnections } from "./connections";
 import { Field, human, Problem, ref, usd, useAction, useGet, type Load, type Row } from "./trucking";
 
 // Billing: delivered loads with the extras they earned (chassis days,
@@ -131,6 +132,9 @@ export function Billing({ owner }: { owner: boolean }) {
   const invoices = useGet<{ invoices: Row[] }>("/invoices");
   const [open, setOpen] = useState<string | null>(null);
   const [mailing, setMailing] = useState<string | null>(null);
+  const conns = useConnections();
+  const books = conns.of("finance");
+  const push = useAction(() => invoices.reload());
   const refresh = () => {
     setOpen(null);
     ready.reload();
@@ -157,7 +161,7 @@ export function Billing({ owner }: { owner: boolean }) {
 
       <section className="panel stack">
         <h2>Invoices</h2>
-        <Problem error={invoices.error} />
+        <Problem error={invoices.error ?? push.error} />
         <div className="table-wrap">
           <table>
             <thead><tr><th>Invoice</th><th>Date</th><th>Lines</th><th>Status</th><th className="num">Amount</th><th></th></tr></thead>
@@ -170,7 +174,11 @@ export function Billing({ owner }: { owner: boolean }) {
                   <td className="muted">{(i.accessorials ?? []).map((a: Line) => human(a.code)).join(", ")}</td>
                   <td><span className="chip">{human(i.status ?? "draft")}</span></td>
                   <td className="num"><strong>{usd(i.amount)}</strong></td>
-                  <td className="actions">{i.status !== "VOID" && <button onClick={() => setMailing(mailing === i.id ? null : i.id)}>{mailing === i.id ? "Close" : i.status === "DRAFT" ? "✉ Email" : "✉ Resend"}</button>}</td>
+                  <td className="actions">
+                    {i.status !== "VOID" && <button onClick={() => setMailing(mailing === i.id ? null : i.id)}>{mailing === i.id ? "Close" : i.status === "DRAFT" ? "✉ Email" : "✉ Resend"}</button>}
+                    {i.finance_ref ? <span className="chip s-mint"><i />In {i.finance_provider ?? "books"}</span>
+                      : books && i.status !== "VOID" && <button disabled={push.busy} onClick={() => push.run(() => api(`/invoices/${i.id}/push`, { method: "POST" }))}>Send to {providerLabel(conns.data, books.provider)}</button>}
+                  </td>
                 </tr>
                 {mailing === i.id && <tr className="static"><td colSpan={6}><InvoiceEmail invoice={i} onDone={() => { setMailing(null); invoices.reload(); }} /></td></tr>}
                 </Fragment>
