@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { api } from "./api";
+import { useNav } from "./nav";
 import { Field, Problem, useAction, useGet, type Row } from "./trucking";
 
 // Email and AI in the office: an email composer that can draft from the
@@ -27,6 +28,17 @@ const PURPOSES: [string, string][] = [
 
 function NotReady({ what, missing }: { what: string; missing: string[] }) {
   return <p className="notice small">{what} isn't set up yet{missing.length ? `: Onixus needs ${missing.join(", ")} on the API` : ""}.</p>;
+}
+
+/** No mailbox: the company connects its own, under Connections. */
+function ConnectMailbox({ onGo }: { onGo: () => void }) {
+  const { go } = useNav();
+  return (
+    <p className="notice small">
+      Connect your company's mailbox to send from it.{" "}
+      <button type="button" className="link" onClick={() => (onGo(), go("connections"))}>Open Connections</button>
+    </p>
+  );
 }
 
 /** Write (or have the AI draft) an email about a load, then send it. */
@@ -69,7 +81,7 @@ export function EmailComposer({ loadId, customerId, onClose, onSent }: { loadId:
       <div className="scrim top" onClick={onClose} />
       <form className="modal panel stack" onSubmit={submit}>
         <div className="panel-head"><h2>Email the customer</h2><button type="button" className="close" aria-label="Close" onClick={onClose}>✕</button></div>
-        {status && !status.email.ready && <NotReady what="Sending email" missing={status.email.missing} />}
+        {status && !status.email.ready && <ConnectMailbox onGo={onClose} />}
         <div className="ai-row">
           <span className="ai-badge" aria-hidden="true">✦</span>
           <select value={purpose} onChange={(e) => setPurpose(e.target.value)} aria-label="What the email is about">
