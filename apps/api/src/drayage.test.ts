@@ -49,6 +49,7 @@ async function withApi(fn: (call: Call, files: Record<string, Buffer>) => Promis
     const res = await fetch(base + path, { method, headers: auth, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
+  (call as Call & { base: string }).base = base;
   try {
     await fn(call, files);
   } finally {
@@ -283,4 +284,118 @@ test("an approved street turn drops the import's trip back to port and sends the
     assert.equal(expLegs[0].from_location_id, s.consignee.id, "the export's empty comes from the import's consignee");
     assert.equal((await call("GET", `/loads/${exp.id}`)).body.load.container_number, "CSQU3054383");
   });
+});
+
+test("dashboard numbers, the rate card, and invoices that carry the extras a move earned", async () => {
+  await withApi(async (call) => {
+    const s = await setup(call);
+    // A live unload, overweight, driven today.
+    const load = (await call("POST", "/loads", containerLoad(s, { direction: "IMPORT", container_number: "CSQU3054383", delivery_location_id: s.consignee.id, weight_lbs: 46_000 }))).body.load;
+    await call("POST", `/loads/${load.id}/status`, { status: "BOOKED" });
+    // A box sitting at the terminal two days past its last free day.
+    const late = (await call("POST", "/loads", containerLoad(s, { direction: "IMPORT", container_number: "TGHU0026975", delivery_location_id: s.consignee.id, last_free_day: "2026-10-10" }))).body.load;
+    await call("POST", `/loads/${late.id}/status`, { status: "BOOKED" });
+
+    let o = (await call("GET", "/overview?days=7")).body;
+    assert.equal(o.kpis.containers, 2);
+    assert.deepEqual(o.kpis.at_risk, { amount: 550, containers: 1 });
+    assert.equal(o.needs_truck.legs, 4);
+    assert.equal(o.needs_truck.urgent, 2, "both legs of the late box are urgent");
+    assert.equal(o.where.terminal, 2);
+    assert.equal(o.attention[0].container_number, "TGHU0026975");
+    assert.equal(o.attention[0].customer, "Blue Ocean Forwarding");
+    assert.equal(o.series.length, 7);
+
+    const legs = (await call("GET", `/loads/${load.id}`)).body.legs;
+    const trip = (await call("POST", "/dispatch", { leg_ids: legs.map((l: any) => l.id), driver_id: s.driver.id, truck_id: s.tractor.id })).body.trip;
+    await call("POST", `/trips/${trip.id}/status`, { status: "DISPATCHED" });
+    for (const l of legs) await runLeg(call, l.id);
+
+    o = (await call("GET", "/overview")).body;
+    assert.equal(o.kpis.moves_today, 2);
+    assert.deepEqual(o.series.at(-1), { date: "2026-10-12", loaded: 1, empty: 1 });
+    assert.equal(o.kpis.ready_to_invoice.count, 1);
+    assert.equal(o.kpis.containers, 1, "a returned empty is out of play");
+
+    // Owners price the extras; the load shows what it has earned.
+    assert.equal((await call("PUT", "/rate-card", { chassis_per_day: "x" })).status, 400);
+    assert.equal((await call("PUT", "/rate-card", { chassis_per_day: 55 })).body.rate_card.chassis_per_day, 55);
+    const extras = (await call("GET", `/loads/${load.id}`)).body.extras;
+    assert.deepEqual(extras.map((e: any) => [e.code, e.amount]), [["CHASSIS", 55], ["OVERWEIGHT", 150]]);
+
+    // The invoice carries them unless the dispatcher sends their own list.
+    const inv = await call("POST", `/loads/${load.id}/invoice`, {});
+    assert.equal(inv.status, 201, JSON.stringify(inv.body));
+    assert.deepEqual(inv.body.invoice.accessorials.map((l: any) => l.code), ["LINEHAUL", "CHASSIS", "OVERWEIGHT"]);
+    assert.equal(inv.body.invoice.amount, 650 + 55 + 150);
+  });
+});
+
+test("email from the office, the assistant, and the MCP server Onyx connects to", async () => {
+  const sent: any[] = [];
+  const prompts: any[] = [];
+  const mailer = { name: "fake", send: async (m: any) => (sent.push(m), { id: `msg-${sent.length}` }), listUnread: async () => [] };
+  const ai = {
+    name: "fake-ai", model: "fake-1",
+    complete: async (r: any) => (prompts.push(r), { text: "CSQU3054383 is the one costing money.", model: "fake-1" }),
+    extractJson: async (r: any) => (prompts.push(r), { subject: "CSQU3054383 delivered", body: "Delivered today.\n\nHarbor Drayage dispatch" }),
+  };
+  await withApi(async (call) => {
+    const s = await setup(call);
+    assert.deepEqual((await call("GET", "/comms/status")).body, {
+      email: { provider: "Resend", ready: false, missing: ["RESEND_FROM"] },
+      ai: { provider: "OpenRouter", ready: true, missing: [] },
+    }, "the office is told what is missing before anyone clicks Send");
+    assert.equal((await call("PATCH", `/customers/${s.customer.id}`, { email: "Ops@BlueOcean.test" })).status, 200);
+    const load = (await call("POST", "/loads", containerLoad(s, { direction: "IMPORT", container_number: "CSQU3054383", delivery_location_id: s.consignee.id }))).body.load;
+    await call("POST", `/loads/${load.id}/status`, { status: "BOOKED" });
+
+    // An email about the load: sent under the company's name and logged on the load.
+    const e = await call("POST", "/emails", { to: "ops@blueocean.test", subject: "Update", body: "Line one <b>\n\nLine two", load_id: load.id });
+    assert.equal(e.status, 201, JSON.stringify(e.body));
+    assert.equal(sent[0].fromName, "Harbor Drayage");
+    assert.match(sent[0].html, /Line one &lt;b&gt;/, "the body is escaped");
+    assert.equal((await call("GET", `/emails?load_id=${load.id}`)).body.emails.length, 1);
+
+    // The assistant answers from the company's own data.
+    const a = await call("POST", "/assistant/ask", { question: "Which container is costing money?" });
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.match(prompts[0].prompt, /CSQU3054383/);
+    assert.match(prompts[0].system, /Harbor Drayage/);
+    const d = await call("POST", "/assistant/draft-email", { load_id: load.id, purpose: "DELIVERED" });
+    assert.equal(d.body.subject, "CSQU3054383 delivered");
+    assert.equal(d.body.to, "ops@blueocean.test", "the customer's address is filled in");
+
+    // Deliver, invoice, email the invoice: a draft becomes sent.
+    const legs = (await call("GET", `/loads/${load.id}`)).body.legs;
+    const trip = (await call("POST", "/dispatch", { leg_ids: legs.map((l: any) => l.id), driver_id: s.driver.id, truck_id: s.tractor.id })).body.trip;
+    await call("POST", `/trips/${trip.id}/status`, { status: "DISPATCHED" });
+    for (const l of legs) await runLeg(call, l.id);
+    const inv = (await call("POST", `/loads/${load.id}/invoice`, {})).body.invoice;
+    const ie = await call("POST", `/invoices/${inv.id}/email`, {});
+    assert.equal(ie.status, 201, JSON.stringify(ie.body));
+    assert.equal(sent[1].to, "ops@blueocean.test");
+    assert.match(sent[1].html, /Total/);
+    assert.equal(ie.body.invoice.status, "SENT");
+
+    // MCP: the same company, through the tools Onyx would call.
+    const mcp = async (method: string, params: unknown, id = 1) => {
+      const res = await fetch(`${(call as any).base}/mcp`, { method: "POST", headers: { ...auth, accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }) });
+      return { status: res.status, body: await res.json() as any };
+    };
+    const init = await mcp("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "onyx-test", version: "0" } });
+    assert.equal(init.status, 200, JSON.stringify(init.body));
+    assert.equal(init.body.result.serverInfo.name, "onixus-dispatcher");
+    const tools = (await mcp("tools/list", {}, 2)).body.result.tools.map((t: any) => t.name);
+    assert.deepEqual(tools.sort(), ["draft_customer_email", "get_load", "get_overview", "search_loads", "send_email"]);
+    const got = (await mcp("tools/call", { name: "get_load", arguments: { load: "csqu 305438-3" } }, 3)).body.result;
+    assert.ok(!got.isError, JSON.stringify(got));
+    const detail = JSON.parse(got.content[0].text);
+    assert.equal(detail.load.id, load.id);
+    assert.equal(detail.emails.length, 2);
+    const missing = (await mcp("tools/call", { name: "get_load", arguments: { load: "NOPE1234567" } }, 4)).body.result;
+    assert.equal(missing.isError, true);
+    const signedOut = await fetch(`${(call as any).base}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" });
+    assert.equal(signedOut.status, 401);
+  }, { mailer: () => mailer as any, ai: () => ai as any }, { EMAIL_PROVIDER: "resend", RESEND_API_KEY: "re_test", LLM_PROVIDER: "openrouter", OPENROUTER_API_KEY: "or_test" });
 });

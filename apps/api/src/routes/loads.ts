@@ -6,6 +6,7 @@ import {
 } from "@onixus/core";
 import { defined, HttpError, isoDate, money, mustGet, text, uuid, type Ctx } from "../http.js";
 import { listDocuments, recordDocument, uploadUrl } from "./documents.js";
+import { extrasFor } from "./overview.js";
 import { legsOf, placesFor, planLoadLegs, syncLoad } from "./legs.js";
 
 export type Load = LoadFields & {
@@ -147,7 +148,7 @@ export function loadRoutes(ctx: Ctx) {
       legsOf(ctx, load.id),
     ]);
     const shown = legs.filter((l) => l.status !== "CANCELED");
-    res.json({ load, legs: shown, places: await placesFor(ctx, shown), events, charges: charges(load, ctx.now()) });
+    res.json({ load, legs: shown, places: await placesFor(ctx, shown), events, charges: charges(load, ctx.now()), extras: await extrasFor(ctx, load, legs) });
   });
 
   r.patch("/loads/:id", async (req, res) => {

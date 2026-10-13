@@ -39,7 +39,7 @@ test("providers are chosen by environment, aliases included", () => {
   assert.equal(selected("llm", { LLM_PROVIDER: "openai" }), "openai");
   assert.equal(selected("llm", { LLM_PROVIDER: "onyx" }), "onyx");
   assert.equal(selected("crm", { CRM_PROVIDER: "hubspot" }), "hubspot");
-  assert.throws(() => selected("email", { EMAIL_PROVIDER: "yahoo" }), /gmail, microsoft, onyx/);
+  assert.throws(() => selected("email", { EMAIL_PROVIDER: "yahoo" }), /gmail, microsoft, resend, onyx/);
 });
 
 test("status names exactly the missing credentials", () => {

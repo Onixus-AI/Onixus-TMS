@@ -1,6 +1,7 @@
 import { missingVars, type Env } from "./env.js";
 import { gmail, GMAIL_VARS } from "./email/gmail.js";
 import { microsoft, MICROSOFT_VARS } from "./email/microsoft.js";
+import { resend, RESEND_VARS } from "./email/resend.js";
 import { hubspot, HUBSPOT_VARS } from "./crm/hubspot.js";
 import { claude, CLAUDE_VARS } from "./llm/claude.js";
 import { openai, OPENAI_VARS } from "./llm/openai.js";
@@ -19,6 +20,7 @@ type Entry<T> = { vars: readonly string[]; make?: (env: Env) => T; label: string
 export const EMAIL_PROVIDERS: Record<string, Entry<EmailProvider>> = {
   gmail: { label: "Gmail", vars: GMAIL_VARS, make: gmail },
   microsoft: { label: "Microsoft 365 / Outlook", vars: MICROSOFT_VARS, make: microsoft },
+  resend: { label: "Resend", vars: RESEND_VARS, make: resend },
   onyx: { label: "Onyx Mail", vars: [] },
 };
 export const CRM_PROVIDERS: Record<string, Entry<CrmProvider>> = {

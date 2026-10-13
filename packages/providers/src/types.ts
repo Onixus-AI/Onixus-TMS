@@ -27,6 +27,8 @@ export type SendEmail = {
   html: string;
   /** Optional reply-to address; the sender is always the connected mailbox. */
   replyTo?: string;
+  /** Display name on the From line, e.g. the company the email is for. */
+  fromName?: string;
 };
 
 export interface EmailProvider {

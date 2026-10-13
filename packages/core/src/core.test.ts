@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bookingProblems, canTransition, chassisFits, containerNumberProblem, containerRisk, demurrage, dispatchProblems,
-  loadShapeProblems, perDiem, planLegs, statusFromLegs, streetTurnMatches, type DriverLike,
+  DEFAULT_RATE_CARD, loadShapeProblems, perDiem, rateCard, suggestedCharges, planLegs, statusFromLegs, streetTurnMatches, type DriverLike,
 } from "./index.js";
 
 const today = "2026-10-12";
@@ -111,4 +111,28 @@ test("street turns pair a nearby empty import with an export on the same line", 
   assert.equal(matches[0].exportLoadId, "e1");
   assert.ok(matches[0].miles < 10);
   assert.equal(streetTurnMatches([{ ...imp, empty_returned_at: "2026-10-11T00:00:00Z" }, near], locations).length, 0);
+});
+
+test("drayage extras: chassis days, prepull, yard storage, waiting, overweight, hazmat", () => {
+  const card = DEFAULT_RATE_CARD;
+  const load = { equipment_type: "CONTAINER", direction: "IMPORT", move_type: "IMPORT_PREPULL", yard_location_id: "yard", weight_lbs: 46_000, hazmat: true, outgated_at: "2026-10-05T08:00:00Z", empty_returned_at: "2026-10-09T10:00:00Z" };
+  const legs = [
+    { seq: 1, status: "DONE", live: false, to_location_id: "yard", done_at: "2026-10-05T10:00:00Z" },
+    { seq: 2, status: "DONE", live: true, from_location_id: "yard", to_location_id: "dc", started_at: "2026-10-08T06:00:00Z", arrived_at: "2026-10-08T08:00:00Z", done_at: "2026-10-08T11:10:00Z" },
+    { seq: 3, status: "DONE", live: false, from_location_id: "dc", done_at: "2026-10-09T10:00:00Z" },
+  ];
+  const lines = suggestedCharges(load, legs, card, now);
+  const by = Object.fromEntries(lines.map((l) => [l.code, l]));
+  assert.equal(by.CHASSIS.quantity, 5); // Oct 5 through Oct 9
+  assert.equal(by.CHASSIS.amount, 200);
+  assert.equal(by.PREPULL.amount, 150);
+  assert.equal(by.YARD_STORAGE.quantity, 2); // 3 days in the yard, 1 free
+  assert.equal(by.WAITING.quantity, 1.25); // 3h10 on site, 2 free, rounded up to the quarter hour
+  assert.equal(by.WAITING.amount, 106.25);
+  assert.equal(by.OVERWEIGHT.amount, 150);
+  assert.equal(by.HAZMAT.amount, 150);
+  // Still out: the chassis clock runs to today. A zero rate drops the line.
+  const out = suggestedCharges({ ...load, empty_returned_at: null, hazmat: false }, [], rateCard({ chassis_per_day: 0, overweight: "x" as never }), now);
+  assert.deepEqual(out.map((l) => l.code), ["OVERWEIGHT"]);
+  assert.equal(suggestedCharges({ equipment_type: "CONTAINER", outgated_at: "2026-10-10T08:00:00Z" }, [], card, now)[0].quantity, 3);
 });
