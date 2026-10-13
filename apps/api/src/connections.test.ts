@@ -18,7 +18,8 @@ test("sealed credentials and signed state can't be read or forged without the se
   assert.throws(() => unseal("another-secret-0123456789abcdefghijklmn", sealed));
   const t = signToken(SECRET, { org: ORG, exp: Date.now() + 60_000 });
   assert.equal(verifyToken<{ org: string }>(SECRET, t)?.org, ORG);
-  assert.equal(verifyToken(SECRET, t.replace(/.$/, (c) => (c === "A" ? "B" : "A"))), null);
+  // Every last character: some decode to the same bytes as the real one, and must still be refused.
+  for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") if (c !== t.at(-1)) assert.equal(verifyToken(SECRET, t.slice(0, -1) + c), null, `last character ${c}`);
   assert.equal(verifyToken(SECRET, signToken(SECRET, { exp: Date.now() - 1 })), null, "expired");
 });
 

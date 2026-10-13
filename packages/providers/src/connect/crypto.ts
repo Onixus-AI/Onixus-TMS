@@ -33,8 +33,10 @@ export function signToken(secret: string, payload: Record<string, unknown>): str
 export function verifyToken<T>(secret: string, token: string): T | null {
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
-  const want = createHmac("sha256", key(secret)).update(body).digest();
-  const got = Buffer.from(sig, "base64url");
+  // Compare the encoded signature, not decoded bytes: base64url's last character
+  // carries padding bits, so a different spelling could decode to the same bytes.
+  const want = Buffer.from(createHmac("sha256", key(secret)).update(body).digest("base64url"));
+  const got = Buffer.from(sig);
   if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
   const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as T & { exp?: number };
   return payload.exp && payload.exp < Date.now() ? null : payload;
