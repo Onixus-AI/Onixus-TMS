@@ -79,8 +79,9 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
   const provider=await connected(ctx,'payments');if(!provider)throw new HttpError(409,'Connect this business’s Stripe account first.');
   // Stripe retains idempotency keys for at least 24h. Older unknown results require review.
   if(job.checkout_started_at&&ctx.now().getTime()-new Date(job.checkout_started_at).getTime()>23*3600000)throw new HttpError(409,'Check the existing payment in Stripe before retrying.');
+  const account=await provider.check();if(job.checkout_started_at&&job.payment_account_id!==account)throw new HttpError(409,'This quote has a payment attempt on another Stripe account. Reconcile it before collecting payment.');
   const start=job.checkout_started_at??ctx.now().toISOString();
-  if(!job.checkout_started_at&&!await store.update('service_jobs',job.id,{checkout_started_at:start,payment_status:'PENDING'},{checkout_started_at:null}))throw new HttpError(409,'Another request is preparing this payment.');
+  if(!job.checkout_started_at&&!await store.update('service_jobs',job.id,{checkout_started_at:start,payment_status:'PENDING',payment_account_id:account},{checkout_started_at:null}))throw new HttpError(409,'Another request is preparing this payment.');
   const returnUrl=(ctx.env.WEB_ORIGIN??'').split(',')[0]!.trim();if(!/^https:\/\//.test(returnUrl))throw new HttpError(503,'A secure business return URL is required.');
   const p=await provider.checkout({key:`tms:${job.id}`,job:job.id,org:orgId(ctx),email:job.customer_email,amount:Number(job.amount_cents),title:job.title,returnUrl});
   if(!p.id||!p.url||new URL(p.url).hostname!=='checkout.stripe.com')throw new HttpError(502,'Stripe did not return a valid checkout.');
@@ -93,7 +94,8 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
   const end=new Date(new Date(body.start).getTime()+body.minutes*60000).toISOString();
   const [prior]=await store.list('service_bookings',{job_id:job.id},{limit:1});if(prior&&prior.status!=='CANCELED'){if(prior.status==='CONFIRMED'&&new Date(String(prior.starts_at)).getTime()===new Date(body.start).getTime()&&new Date(String(prior.ends_at)).getTime()===new Date(end).getTime())return void res.json({booking:prior});throw new HttpError(409,'Cancel the current appointment before rescheduling, or reconcile an uncertain reservation.');}
   const calendar=await connected(ctx,'calendar');if(!calendar)throw new HttpError(409,'Connect Google Calendar first.');
-  const values={job_id:job.id,resource:'primary',starts_at:body.start,ends_at:end,status:'RESERVING',last_error:null};
+  const [calendarRow]=await store.list('connections',{category:'calendar'},{limit:1});if(!calendarRow)throw new HttpError(409,'Calendar connection changed; reconnect first.');
+  const values={calendar_connection_id:calendarRow.id,calendar_version:calendarRow.updated_at,job_id:job.id,resource:'primary',starts_at:body.start,ends_at:end,status:'RESERVING',last_error:null};
   const booking=prior?await store.update('service_bookings',prior.id,values,{status:'CANCELED'}):await store.insert('service_bookings',values);if(!booking)throw new HttpError(409,'Reservation changed; reload.');
   try{
    if(!await calendar.available(body.start,end)){await store.update('service_bookings',booking.id,{status:'CANCELED',last_error:'Google Calendar reports a conflict.'});throw new HttpError(409,'That time is unavailable.');}
@@ -105,6 +107,7 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
   const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job'),store=ctx.store();
   const [booking]=await store.list('service_bookings',{job_id:job.id},{limit:1});if(!booking)throw new HttpError(404,'No reservation exists.');
   if(booking.status==='CANCELED')return void res.json({booking,refund:'No refund was initiated.'});
+  const [calendarRow]=await store.list('connections',{category:'calendar'},{limit:1});if(!calendarRow||calendarRow.id!==booking.calendar_connection_id||new Date(String(calendarRow.updated_at)).getTime()!==new Date(String(booking.calendar_version)).getTime())throw new HttpError(409,'The booking belongs to the original calendar connection. Reconcile that calendar before cancellation.');
   const calendar=await connected(ctx,'calendar');if(!calendar)throw new HttpError(409,'Reconnect the calendar before canceling.');
   await store.update('service_bookings',booking.id,{status:'REVIEW',last_error:'Cancellation pending; verify Google Calendar if interrupted.'});
   await calendar.remove(`service:${job.id}`);
@@ -112,7 +115,7 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
  });
  r.post('/operations/jobs/:id/complete',async(req,res)=>{
   const b=z.object({proof_reference:z.string().trim().min(3).max(500)}).strict().parse(req.body),store=ctx.store();const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job');
-  if(job.status!=='ACCEPTED')throw new HttpError(409,'Only accepted work can be completed.');
+  if(job.status!=='ACCEPTED'||job.payment_status!=='PAID')throw new HttpError(409,'Completion requires accepted work with verified payment.');
   const [booking]=await store.list('service_bookings',{job_id:job.id,status:'CONFIRMED'},{limit:1});if(!booking||new Date(String(booking.starts_at))>ctx.now())throw new HttpError(409,'A confirmed appointment that has started is required.');
   await store.insert('service_events',{job_id:job.id,kind:'service.proof_recorded',payload:b});res.json({job:await store.update('service_jobs',job.id,{status:'COMPLETED',updated_at:ctx.now().toISOString()},{status:'ACCEPTED'})});
  });

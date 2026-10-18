@@ -15,10 +15,16 @@ test('only a signed exact-amount checkout for this company records payment, once
  const secret='fixture-encryption-secret-1234567890123456',job='44444444-4444-4444-8444-444444444444',connection='55555555-5555-4555-8555-555555555555';
  const db=memoryStore({service_jobs:[{id:job,org_id:A,status:'ACCEPTED',payment_status:'PENDING',checkout_id:'cs_fixture',amount_cents:12000}],connections:[{id:connection,org_id:A,provider:'stripe',category:'payments',secret:seal(secret,{api_key:'sk_test_fixture',webhook_secret:'whsec_fixture'})}]});
  const server=createApp({TMS_API_KEY:KEY,CONNECTIONS_SECRET:secret},{store:()=>db}).listen(0);const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}/webhooks/stripe/${connection}`;
- const send=async(overrides:object={},signed=true)=>{const raw=JSON.stringify({id:'evt_fixture',type:'checkout.session.completed',livemode:false,data:{object:{id:'cs_fixture',currency:'usd',amount_total:12000,payment_status:'paid',metadata:{org_id:A,job_id:job},...overrides}}});const t=String(Math.floor(Date.now()/1000)),sig=createHmac('sha256','whsec_fixture').update(t+'.'+raw).digest('hex');return fetch(base,{method:'POST',headers:{'Content-Type':'application/json','Stripe-Signature':`t=${t},v1=${signed?sig:'0'.repeat(64)}`},body:raw});};
+ const send=async(overrides:object={},signed=true)=>{const raw=JSON.stringify({id:'evt_fixture',type:'checkout.session.completed',livemode:false,data:{object:{id:'cs_fixture',payment_intent:'pi_fixture',currency:'usd',amount_total:12000,payment_status:'paid',metadata:{org_id:A,job_id:job},...overrides}}});const t=String(Math.floor(Date.now()/1000)),sig=createHmac('sha256','whsec_fixture').update(t+'.'+raw).digest('hex');return fetch(base,{method:'POST',headers:{'Content-Type':'application/json','Stripe-Signature':`t=${t},v1=${signed?sig:'0'.repeat(64)}`},body:raw});};
  try{
   assert.equal((await send({},false)).status,400);assert.equal((await send({amount_total:1})).status,409);assert.equal((await send({metadata:{org_id:B,job_id:job}})).status,400);assert.equal((await db.get('service_jobs',job))?.payment_status,'PENDING');
   assert.equal((await send()).status,200);assert.equal((await db.get('service_jobs',job))?.payment_status,'PAID');assert.equal((await send()).status,200);assert.equal((await db.list('payment_events')).length,1);
+  const refund=async(amount:number,original=12000)=>{const raw=JSON.stringify({id:'evt_refund_'+amount,type:'charge.refunded',livemode:false,data:{object:{payment_intent:'pi_fixture',currency:'usd',amount:original,amount_refunded:amount}}});const t=String(Math.floor(Date.now()/1000));return fetch(base,{method:'POST',headers:{'Content-Type':'application/json','Stripe-Signature':`t=${t},v1=${createHmac('sha256','whsec_fixture').update(t+'.'+raw).digest('hex')}`},body:raw});};
+  assert.equal((await refund(6000,12001)).status,409);assert.equal((await db.get('service_jobs',job))?.payment_status,'PAID');
+  assert.equal((await refund(6000)).status,200);assert.equal((await db.get('service_jobs',job))?.payment_status,'REVIEW');
+  assert.equal((await refund(12000)).status,200);assert.equal((await db.get('service_jobs',job))?.payment_status,'REFUNDED');
+  assert.equal((await send()).status,200);assert.equal((await db.get('service_jobs',job))?.payment_status,'REFUNDED');
+
  }finally{server.close();}
 });
 test('Stripe rejects forged, expired and wrong-mode events',()=>{

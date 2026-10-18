@@ -1,9 +1,13 @@
-# Onixus Logistics OS
+# Onixus TMS · Business OS
 
 Trucking TMS. Drayage (containers) is the core; flatbed, dry van, box truck
 and cargo van loads run through the same loads, dispatch and billing flow.
 One authenticated API over swappable providers, the database schema, and the
 dispatcher web app.
+
+## Transport operations release
+
+The Business OS workspace now supports additive transport service profiles, reviewed service quotes, Stripe payment receipts/refund feedback, Google Calendar bookings, and a same-business Veltra Mail/CRM connector. Drayage remains the existing freight and dispatch workflow. Other transport modules start with service intake; specialized workflows are not claimed complete. See [the release and activation checklist](docs/veltra-business-os-release-2026-10-18.md) for exact scope and limitations.
 
 ## Who uses it
 

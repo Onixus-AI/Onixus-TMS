@@ -1,3 +1,4 @@
+import {syncSuite} from "./suite.js";
 import { randomBytes } from "node:crypto";
 import { Router, type Request } from "express";
 import { z } from "zod";
@@ -273,6 +274,8 @@ export function connectionRoutes(ctx: Ctx) {
     if (!row) throw new HttpError(404, "Nothing is connected here");
     try {
       if (row.provider === "veltra") {
+        const credentials=unseal(secretOf(ctx),row.secret);
+        if(credentials.api_key){const result=await syncSuite(ctx,ctx.store());return res.json({ok:true,detail:`Veltra Mail connected. ${result.synced} operation events handed to Mail / CRM.`});}
         const a = await veltra(ctx.env).account(unseal(secretOf(ctx), row.secret).account_id!);
         if (a.onixus_org !== orgAndUser(ctx).orgId) throw new Error("Veltra is no longer linked to this company; link it again");
         const detail = a.mailbox ? `Veltra is working ${a.mailbox} with Onixus` : "Linked, but Veltra has no mailbox yet: connect one in Veltra";
