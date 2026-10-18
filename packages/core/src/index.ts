@@ -7,3 +7,5 @@ export * from "./legs.js";
 export * from "./accessorials.js";
 
 export * from "./transport.js";
+
+export * from './mortuary.js';

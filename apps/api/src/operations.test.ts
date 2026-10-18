@@ -52,3 +52,15 @@ test('operations are company scoped, quotes freeze on acceptance, and unverified
   assert.equal((await call('POST',`/operations/jobs/${id}/payment`,{})).status,409);
  }finally{server.close();}
 });
+test('mortuary client review is isolated and blocks acceptance until the owner finishes setup',async()=>{
+ const db=memoryStore({transport_profiles:[{id:A,org_id:A,modules:['MORTUARY']}],service_jobs:[{id:'44444444-4444-4444-8444-444444444444',org_id:A,transport_type:'MORTUARY',reference:'restricted-case-reference',status:'QUOTED',expires_at:'2026-10-20T12:00:00Z'}]});
+ const server=createApp({TMS_API_KEY:KEY},{store:()=>db,now:()=>new Date('2026-10-18T12:00:00Z')}).listen(0),base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+ const call=(path:string,body:unknown,method='POST',org=A)=>fetch(base+path,{method,headers:{Authorization:`Bearer ${KEY}`,'X-Org-Id':org,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ try{
+  assert.equal((await call('/operations/jobs/44444444-4444-4444-8444-444444444444/accept',{acceptance_reference:'email fixture'})).status,409);
+  const setup={dispatch_phone:'+1 fixture',coverage:'Reviewed partner network',procedure_reference:'restricted SOP reference',checks:['coverage','release','custody','staff','pricing','privacy']};
+  assert.equal((await call('/transport/mortuary',setup,'PUT',B)).status,409);assert.equal((await call('/transport/mortuary',setup,'PUT')).status,200);
+  assert.equal((await db.get('transport_profiles',A))?.mortuary_setup instanceof Object,true);
+  assert.equal((await call('/operations/jobs/44444444-4444-4444-8444-444444444444/accept',{acceptance_reference:'email fixture'})).status,200);
+ }finally{server.close();}
+});

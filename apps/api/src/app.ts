@@ -60,6 +60,13 @@ export function createApp(env: Env, deps: Deps = {}) {
   startSuiteWorker(ctx);
   const app = express();
   app.disable("x-powered-by");
+  app.use((_req,res,next)=>{
+    res.setHeader('X-Content-Type-Options','nosniff');
+    res.setHeader('Referrer-Policy','no-referrer');
+    res.setHeader('Content-Security-Policy',"frame-ancestors 'none'");
+    if(env.API_PUBLIC_URL?.startsWith('https://'))res.setHeader('Strict-Transport-Security','max-age=31536000');
+    next();
+  });
   // Keep the raw bytes: webhook signatures are computed over them, not over re-serialized JSON.
   app.use(express.json({ limit: "1mb", verify: (req, _res, buf) => void ((req as Request & { rawBody?: Buffer }).rawBody = buf) }));
   app.use((req, res, next) => {

@@ -1,11 +1,12 @@
 import {Router,type Request,type Response} from 'express';
 import {z} from 'zod';
-import {TRANSPORT_MODULES,TRANSPORT_TYPES,quoteTotal} from '@onixus/core';
+import {TRANSPORT_MODULES,TRANSPORT_TYPES,quoteTotal,MORTUARY_CHECKS,mortuaryGaps} from '@onixus/core';
 import {scopedStore,seal,stripePayments,unseal,type Payments} from '@onixus/providers';
 import {roles} from '../auth.js';
 import {HttpError,mustGet,uuid,type Ctx} from '../http.js';
 import {connected} from './connections.js';
 
+const mortuaryInput=z.object({dispatch_phone:z.string().trim().min(5).max(60),coverage:z.string().trim().min(3).max(1000),procedure_reference:z.string().trim().min(3).max(300),checks:z.array(z.enum(['coverage','release','custody','staff','pricing','privacy'])).max(6).transform(x=>[...new Set(x)])}).strict();
 export const profileInput=z.object({modules:z.array(z.enum(TRANSPORT_TYPES)).min(1).max(7).transform(v=>[...new Set(v)]),service_area:z.string().trim().max(1000),timezone:z.string().refine(v=>{try{new Intl.DateTimeFormat('en',{timeZone:v});return true;}catch{return false;}},'Choose a valid timezone.')});
 const jobInput=z.object({request_key:uuid,title:z.string().trim().min(1).max(200),transport_type:z.enum(TRANSPORT_TYPES),customer_email:z.string().trim().toLowerCase().email(),crm_customer_id:uuid.nullish(),source_thread:z.string().max(500).nullish(),load_id:uuid.nullish(),origin:z.string().trim().min(1).max(300),destination:z.string().trim().min(1).max(300),reference:z.string().trim().max(200).default('')}).strict();
 const line=z.object({description:z.string().trim().min(1).max(200),quantity:z.number().positive().max(1000000),unit_cents:z.number().int().positive().max(99999999),periods:z.number().int().min(1).max(3650).default(1)}).strict();
@@ -46,12 +47,25 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
  r.get('/operations',async(_req,res)=>{
   const store=ctx.store();const id=orgId(ctx);const [profile,jobs,bookings,connections,events]=await Promise.all([store.get('transport_profiles',id),store.list('service_jobs',{}, {order:'created_at',limit:200}),store.list('service_bookings',{}, {order:'starts_at',limit:200}),store.list('connections'),store.list('service_events',{}, {order:'created_at',limit:200})]);
   const stripe=connections.find(c=>c.provider==='stripe');
-  res.json({modules:TRANSPORT_MODULES,profile,jobs,bookings,events,connections:{calendar:connections.some(c=>c.category==='calendar'&&c.status==='CONNECTED'),stripe:!!stripe,mail:connections.some(c=>c.category==='inbox'&&c.status==='CONNECTED')},stripe_webhook:stripe?`${ctx.env.API_PUBLIC_URL?.replace(/\/$/,'')??''}/webhooks/stripe/${stripe.id}`:null,scope:'Latest 200 jobs, bookings and events'});
+  res.json({mortuary:{checks:MORTUARY_CHECKS,setup:profile?.mortuary_setup??null,gaps:mortuaryGaps(profile?.mortuary_setup as any)},modules:TRANSPORT_MODULES,profile,jobs,bookings,events,connections:{calendar:connections.some(c=>c.category==='calendar'&&c.status==='CONNECTED'),stripe:!!stripe,mail:connections.some(c=>c.category==='inbox'&&c.status==='CONNECTED')},stripe_webhook:stripe?`${ctx.env.API_PUBLIC_URL?.replace(/\/$/,'')??''}/webhooks/stripe/${stripe.id}`:null,scope:'Latest 200 jobs, bookings and events'});
  });
  r.put('/transport/profile',roles('OWNER'),async(req,res)=>{
   const body=profileInput.parse(req.body);const id=orgId(ctx),store=ctx.store();const prior=await store.get('transport_profiles',id);
   res.json({profile:prior?await store.update('transport_profiles',id,{...body,updated_at:ctx.now().toISOString()}):await store.insert('transport_profiles',{id,...body})});
  });
+ r.put('/transport/mortuary',roles('OWNER'),async(req,res)=>{
+  const body=mortuaryInput.parse(req.body),id=orgId(ctx),store=ctx.store(),profile=await store.get('transport_profiles',id);
+  if(!(profile?.modules as string[]|undefined)?.includes('MORTUARY'))throw new HttpError(409,'Enable mortuary transport first.');
+  const caller=ctx.caller();
+  const setup={...body,reviewed_at:ctx.now().toISOString(),reviewed_by:caller?.kind==='user'?caller.user.id:'platform'};
+  res.json({profile:await store.update('transport_profiles',id,{mortuary_setup:setup,updated_at:ctx.now().toISOString()}),gaps:mortuaryGaps(setup)});
+ });
+ async function readyForMortuary(job:Job){
+  if(job.transport_type!=='MORTUARY')return;
+  const p=await ctx.store().get('transport_profiles',orgId(ctx));
+  if(!(p?.modules as string[]|undefined)?.includes('MORTUARY')||mortuaryGaps(p?.mortuary_setup as any).length)throw new HttpError(409,'Finish the owner-reviewed mortuary onboarding checklist first.');
+  if(typeof job.reference!=='string'||job.reference.trim().length<3)throw new HttpError(409,'A restricted case / release authority reference is required.');
+ }
  r.post('/operations/jobs',async(req,res)=>{
   const body=jobInput.parse(req.body),store=ctx.store();const profile=await store.get('transport_profiles',orgId(ctx));
   if(!(profile?.modules as string[]|undefined)?.includes(body.transport_type))throw new HttpError(409,'Enable this transport service in Business setup first.');
@@ -69,6 +83,7 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
  });
  r.post('/operations/jobs/:id/accept',roles('OWNER'),async(req,res)=>{
   const b=z.object({acceptance_reference:z.string().trim().min(3).max(500)}).strict().parse(req.body);const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job');
+  await readyForMortuary(job);
   if(job.status!=='QUOTED'||!job.expires_at||new Date(job.expires_at)<=ctx.now())throw new HttpError(409,'A current quote is required.');
   const changed=await ctx.store().update('service_jobs',job.id,{...b,status:'ACCEPTED',updated_at:ctx.now().toISOString()},{status:'QUOTED'});if(!changed)throw new HttpError(409,'Job changed; reload.');res.json({job:changed});
  });
@@ -89,7 +104,7 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
  });
  r.post('/operations/jobs/:id/book',async(req,res)=>{
   const body=z.object({start:z.string().datetime(),minutes:z.number().int().min(15).max(1440)}).strict().parse(req.body),store=ctx.store();
-  const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job');if(job.status!=='ACCEPTED'||job.payment_status!=='PAID')throw new HttpError(409,'An accepted quote and verified full payment are required.');
+  const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job');await readyForMortuary(job);if(job.status!=='ACCEPTED'||job.payment_status!=='PAID')throw new HttpError(409,'An accepted quote and verified full payment are required.');
   if(new Date(body.start)<=ctx.now())throw new HttpError(400,'Choose a future appointment.');
   const end=new Date(new Date(body.start).getTime()+body.minutes*60000).toISOString();
   const [prior]=await store.list('service_bookings',{job_id:job.id},{limit:1});if(prior&&prior.status!=='CANCELED'){if(prior.status==='CONFIRMED'&&new Date(String(prior.starts_at)).getTime()===new Date(body.start).getTime()&&new Date(String(prior.ends_at)).getTime()===new Date(end).getTime())return void res.json({booking:prior});throw new HttpError(409,'Cancel the current appointment before rescheduling, or reconcile an uncertain reservation.');}
@@ -114,7 +129,8 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
   res.json({booking:await store.update('service_bookings',booking.id,{status:'CANCELED',last_error:null,updated_at:ctx.now().toISOString()}),refund:'No refund was initiated. Review the business cancellation terms in Stripe.'});
  });
  r.post('/operations/jobs/:id/complete',async(req,res)=>{
-  const b=z.object({proof_reference:z.string().trim().min(3).max(500)}).strict().parse(req.body),store=ctx.store();const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job');
+  const b=z.object({proof_reference:z.string().trim().min(3).max(500),custody_reference:z.string().trim().min(3).max(300).optional()}).strict().parse(req.body),store=ctx.store();const job=await mustGet<Job>(ctx,'service_jobs',String(req.params.id),'Job');
+  await readyForMortuary(job);if(job.transport_type==='MORTUARY'&&!b.custody_reference)throw new HttpError(409,'Record the signed custody / receiving authority document reference before completion.');
   if(job.status!=='ACCEPTED'||job.payment_status!=='PAID')throw new HttpError(409,'Completion requires accepted work with verified payment.');
   const [booking]=await store.list('service_bookings',{job_id:job.id,status:'CONFIRMED'},{limit:1});if(!booking||new Date(String(booking.starts_at))>ctx.now())throw new HttpError(409,'A confirmed appointment that has started is required.');
   await store.insert('service_events',{job_id:job.id,kind:'service.proof_recorded',payload:b});res.json({job:await store.update('service_jobs',job.id,{status:'COMPLETED',updated_at:ctx.now().toISOString()},{status:'ACCEPTED'})});
