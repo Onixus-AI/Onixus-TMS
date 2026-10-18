@@ -3,7 +3,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import {
   authorizeUrl, CATEGORIES, connector, CONNECTORS, exchangeCode, oauthReady, ProviderError, scopedStore, seal, signToken, unseal, veltra, verifyToken,
-  type Automation, type Built, type Calendar, type Category, type Chat, type Documents, type Sheet, type Connector, type CrmProvider, type EmailProvider, type LlmProvider, type TrackingProvider,
+  type Payments, type Automation, type Built, type Calendar, type Category, type Chat, type Documents, type Sheet, type Connector, type CrmProvider, type EmailProvider, type LlmProvider, type TrackingProvider,
 } from "@onixus/providers";
 import { COMPANY_KEY_PREFIX, forgetCompanyKeys, keyHash } from "../auth.js";
 import { HttpError, type Ctx } from "../http.js";
@@ -135,6 +135,7 @@ const webOrigin = (ctx: Ctx) => (ctx.env.WEB_ORIGIN ?? "http://localhost:5173").
 
 /** A quick read with the new credentials, so a wrong key is caught at connect time, not on first use. */
 async function check(category: Category, provider: unknown) {
+  if(category === "payments") return `Stripe account ${(await (provider as Payments).check())} reachable`;
   if (category === "tracking") return `${(await (provider as TrackingProvider).positions()).length} vehicle(s) reporting`;
   if (category === "crm") return (await (provider as CrmProvider).searchCompanies("a", 1), "CRM reachable");
   if (category === "ai") {

@@ -13,10 +13,11 @@ import { Field, PageTitle, Problem, useAction, useGet } from "./trucking";
 
 type Provider = { id: string; label: string; by: string | null; blurb: string; method: "oauth" | "fields" | "link" | "builtin" | "soon"; fields: { name: string; label: string; secret?: boolean; placeholder?: string; optional?: boolean; hint?: string }[]; ready: boolean; missing: string[] };
 type Connection = { id: string; category: string; provider: string; account: string | null; status: "CONNECTED" | "ERROR"; last_error: string | null; connected_by: string | null; updated_at: string };
-type CategoryId = "email" | "inbox" | "crm" | "finance" | "tracking" | "ai" | "automation" | "chat" | "calendar" | "documents" | "reports" | "social";
+type CategoryId = "payments" | "email" | "inbox" | "crm" | "finance" | "tracking" | "ai" | "automation" | "chat" | "calendar" | "documents" | "reports" | "social";
 export type Connections = { encryption: boolean; categories: { category: CategoryId; connection: Connection | null; providers: Provider[] }[] };
 
 const CATEGORY: Record<CategoryId, { title: string; what: string }> = {
+  payments: {title:"Payments",what:"Stripe collects accepted quotes. Configure the signing secret for the webhook endpoint shown in Operations."},
   email: { title: "Email", what: "Customer emails and invoices go out from this mailbox. Without one, Onixus sends under your company's name." },
   inbox: { title: "AI email employee", what: "Veltra works your inbox with Onixus. Linking uses the Veltra account signed in with your own email." },
   crm: { title: "CRM", what: "New customers are added to your CRM, with their billing contact." },

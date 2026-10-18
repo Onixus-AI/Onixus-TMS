@@ -1,3 +1,4 @@
+import {stripePayments,type Payments} from "../finance/stripe.js";
 import { webhookAutomation, type Automation } from "../automation/webhook.js";
 import { googleCalendar, type Calendar } from "../calendar/google.js";
 import { slack, type Chat } from "../chat/slack.js";
@@ -26,11 +27,11 @@ import { ProviderError, type CrmProvider, type EmailProvider, type FinanceProvid
 //  - builtin: included with Onixus, nothing to connect (Onixus AI).
 //  - soon: listed, not connectable yet.
 
-export const CATEGORIES = ["email", "inbox", "crm", "finance", "tracking", "ai", "automation", "chat", "calendar", "documents", "reports", "social"] as const;
+export const CATEGORIES = ["email", "inbox", "crm", "finance", "tracking", "ai", "automation", "chat", "calendar", "documents", "reports", "social", "payments"] as const;
 export type Category = (typeof CATEGORIES)[number];
 export type Credentials = Record<string, string>;
 export type Field = { name: string; label: string; secret?: boolean; placeholder?: string; optional?: boolean; pattern?: string; hint?: string };
-export type Built = { inbox: never; social: never; email: EmailProvider; crm: CrmProvider; finance: FinanceProvider; tracking: TrackingProvider; ai: LlmProvider; automation: Automation; chat: Chat; calendar: Calendar; documents: Documents; reports: Sheet };
+export type Built = { payments: Payments; inbox: never; social: never; email: EmailProvider; crm: CrmProvider; finance: FinanceProvider; tracking: TrackingProvider; ai: LlmProvider; automation: Automation; chat: Chat; calendar: Calendar; documents: Documents; reports: Sheet };
 type Hooks = { onRotate?: (refreshToken: string) => void };
 
 export type OAuthSpec = {
@@ -88,6 +89,9 @@ const workspaceOpts = (env: Env, c: Credentials, hooks?: Hooks) => ({
 });
 
 export const CONNECTORS: Connector[] = [
+  {id:'stripe',category:'payments',label:'Stripe',blurb:'Collect payment for an accepted quote. Payment is verified by a signed webhook.',method:'fields',
+   fields:[{name:'api_key',label:'Stripe secret key',secret:true,pattern:'^sk_(test|live)_',hint:'Use a Stripe secret key for the intended account and mode.'},{name:'webhook_secret',label:'Endpoint signing secret',secret:true,pattern:'^whsec_'}],
+   build:(_env,c)=>stripePayments({key:c.api_key!,webhookSecret:c.webhook_secret!})},
   {
     id: "gmail", category: "email", label: "Gmail", blurb: "Send customer emails and invoices from your Google Workspace or Gmail address.", method: "oauth",
     oauth: {

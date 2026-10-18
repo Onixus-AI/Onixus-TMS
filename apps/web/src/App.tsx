@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { api } from "./api";
 import { arrivedFrom, authConfigured, supabase } from "./supabase";
 import { ChoosePassword, Onboarding, SignIn, Team } from "./account";
+import {Operations} from "./operations";
 import { Billing } from "./billing";
 import { ConnectionsPage } from "./connections";
 import { DriverApp } from "./driver";
@@ -47,25 +48,28 @@ function Account({ me }: { me: Me }) {
 }
 
 function Shell({ me, children, tabs, tab, setTab }: { me: Me; children: React.ReactNode; tabs: [Tab, string][]; tab?: Tab; setTab?: (t: Tab) => void }) {
+  const [collapsed,setCollapsed]=useState(false);
   return (
-    <div className="shell">
+    <div className={`shell tms-shell ${collapsed?"sidebar-collapsed":""}`}>
       <header className="topbar">
         <div className="brand">
           <OnixusLogo />
           <div>
-            <strong>Onixus</strong>
-            <span className="org">{me.organization?.name ?? "Logistics OS"}</span>
+            <strong>Onixus TMS</strong>
+            <span className="org">{me.organization?.name ?? "Transport OS"}</span>
           </div>
         </div>
-        {tabs.length > 0 && (
-          <nav className="tabs" aria-label="Sections">
+        <button aria-label="Toggle navigation" aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}>☰</button>
+        <Account me={me} />
+      </header>
+      {!collapsed&&tabs.length>0&&<aside className="tms-sidebar">        {tabs.length > 0 && (
+          <nav className="tms-navigation" aria-label="Sections">
             {tabs.map(([id, label]) => (
               <button key={id} className={tab === id ? "active" : ""} aria-current={tab === id ? "page" : undefined} onClick={() => setTab?.(id)}>{label}</button>
             ))}
           </nav>
         )}
-        <Account me={me} />
-      </header>
+<div className="tms-suite-links"><small>Business OS</small><a href="https://veltra-model-1.vercel.app/">Veltra Chat</a><a href="https://veltra-model-1.vercel.app/?canvas=mail">Veltra Mail</a><a href="https://veltra-model-1.vercel.app/?canvas=crm">Veltra CRM</a></div></aside>}
       <main>{children}</main>
     </div>
   );
@@ -76,7 +80,7 @@ function Office({ me }: { me: Me }) {
   const drives = Boolean(me.membership?.driver_id);
   // Owner-operators mostly drive: open on their trips.
   const returned = connectionReturn;
-  const [tab, setTab] = useState<Tab>(returned ? "connections" : me.organization?.kind === "OWNER_OPERATOR" && drives ? "mytrips" : "overview");
+  const [tab, setTab] = useState<Tab>(returned ? "connections" : me.organization?.kind === "OWNER_OPERATOR" && drives ? "mytrips" : "operations");
   const [intent, setIntent] = useState<Intent>({});
   const go = useCallback((t: Tab, i: Intent = {}) => {
     setIntent(i);
@@ -84,7 +88,7 @@ function Office({ me }: { me: Me }) {
     window.scrollTo({ top: 0 });
   }, []);
   const tabs: [Tab, string][] = [
-    ["overview", "Overview"],
+    ["operations", "Operations"], ["overview", "Overview"],
     ...(drives ? ([["mytrips", "My trips"]] as [Tab, string][]) : []),
     ["loads", "Loads"], ["dispatch", "Dispatch"], ["containers", "Containers"], ["billing", "Billing"], ["fleet", "Fleet"], ["customers", "Customers"],
     ["connections", "Connections"],
@@ -93,6 +97,7 @@ function Office({ me }: { me: Me }) {
   return (
     <NavContext.Provider value={{ go, intent, clearIntent: () => setIntent({}) }}>
       <Shell me={me} tabs={tabs} tab={tab} setTab={(t) => go(t)}>
+        {tab === "operations" && <Operations owner={owner} />}
         {tab === "overview" && <Overview me={me} />}
         {tab === "mytrips" && <DriverApp />}
         {tab === "loads" && <Loads />}

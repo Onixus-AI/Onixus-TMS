@@ -19,3 +19,5 @@ export { samsara } from "./tracking/samsara.js";
 export { motive } from "./tracking/motive.js";
 export { quickbooks } from "./finance/quickbooks.js";
 export { veltra, VELTRA_VARS, type VeltraAccount } from "./veltra.js";
+
+export {stripePayments,type Payments} from "./finance/stripe.js";

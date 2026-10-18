@@ -1,0 +1,38 @@
+# Veltra Business OS and transport operations — 18 October 2026
+
+This release extends the existing Onixus TMS, rather than replacing its drayage rules. It adds an Operations screen, a collapsible workspace sidebar, and an Onixus TMS connector under Veltra Chat's Business OS category.
+
+## Delivered implementation
+
+- Additive service profiles: drayage, trucking, warehousing, local delivery/courier, medical transport, mortuary transport and towing. Each organization selects its own services and service area. Onixus's verified info@onixus.xyz TMS organization is configured for DRAYAGE + WAREHOUSING. The second existing Onixus organization has not been merged or altered.
+- Existing container validation, load lifecycle, delivery-order reading, dispatch, legs, clocks, tariffs and invoices remain authoritative for drayage. Generic service intake does not dispatch a vehicle or create a freight load.
+- Service jobs retain an originating thread/reference and optional load and CRM customer references. Owners create calculated line-item quotes and record customer acceptance evidence. Accepted quotes cannot be repriced.
+- A business connects its own Stripe account using encrypted credentials. Accepted quotes can produce an idempotent full-payment Checkout link. Signed webhooks validate mode, company, job, checkout ID, currency and exact amount before recording payment. Duplicate events are harmless. Full refunds update REFUNDED; partial refunds require REVIEW. Refunds do not silently cancel appointments. No charge or refund is initiated by installing this release.
+- Google Calendar availability is checked before a paid job is booked. Local overlapping reservations are serialized by a Postgres trigger. Provider uncertainty keeps the reservation in REVIEW/RESERVING. Calendar event IDs were corrected to use valid base32hex characters. Owners can cancel an appointment and then choose another time. Calendar cancellation does not refund a payment.
+- Completion requires a confirmed appointment that has started and a proof-of-service reference. This is an owner/dispatcher record, not independent verification of transport fulfillment.
+- Job/payment state changes write an event outbox in the same database transaction. A bounded worker hands events to the same business's existing Mail account, which queues idempotent CRM activity. A separate same-business owner check binds the TMS company key to Mail. No mailbox tokens are copied to TMS. No customer email is sent by the connector. The UI distinguishes handoff to Mail from final CRM delivery.
+- Chat can display the connected TMS and fetch a current, bounded, read-only operations snapshot for a message while the TMS panel is open. Conversation cannot charge, book, dispatch or email through this context.
+- CRM research requests now have a real execution path, bounded to 50 source pages/run and five runs per owner per UTC day, with atomic claim and protected run counters. An external research credential is required. Results remain unverified source pages for review; they are not automatically imported or enrolled. Selecting LinkedIn/Maps/social does not grant those services' private APIs.
+- Mail observes narrowly structured machine delivery-failure reports and quarantines enrolled recipients for owner review. Reports are untrusted; they do not prove a bounce. Provider acceptance is not inbox delivery. No comprehensive complaint feed, SPF/DKIM/DMARC verification or historic delivery backfill is claimed.
+
+## Validation
+
+- 49 TMS tests: 40 API/provider tests and 9 freight-core tests. Includes tenant boundaries, immutable accepted quotes, duplicate requests, payment signature rejection, amount/company matching and duplicate payment receipts. Typecheck and Vite production build pass.
+- 78 Mail tests, including same-owner TMS linking, inbox preservation, cross-company event rejection and conservative DSN parsing. Mail backend typecheck passes.
+- CRM: 6 unit tests and 41 database assertions, including tenant isolation, owner-only research claims and protected terminal states. CRM and Chat production builds pass.
+- Actual TMS Postgres rollback checks verified event creation, overlapping-reservation refusal, cross-company booking refusal and browser-role denial. Fixtures were rolled back; no service job, booking, charge or customer email was created by validation.
+- Security advisors show the intentional server-only tables deny browser access. The new authenticated research RPCs explicitly check the owning user. Existing Mail token RPCs remain token-authenticated. Leaked-password protection remains an existing Auth configuration gap.
+
+## Activation still required
+
+1. Sign into TMS as the same owner used in Veltra Mail. Operations → Prepare Mail / CRM connection produces a one-time private connection code. Veltra Chat → Business OS → Onixus TMS accepts it and lets the owner select the CRM workspace. Completing this step links the existing inbox and activates the authoritative drayage pack. Existing warehouse prices are preserved; trucking is added when selected in TMS. The API checks both business ownership and the company key.
+2. Authorize Google Calendar separately under TMS Connections. Gmail consent alone does not grant Calendar access. Confirm the OAuth callback https://onixus-tms-api.up.railway.app/connections/oauth/callback is registered with the Google application.
+3. Add the intended Stripe account's private key and the webhook signing secret in TMS Connections. Register checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed and charge.refunded at the per-connection endpoint shown in Operations. Use test mode before live collection.
+4. Configure FIRECRAWL_API_KEY privately in both CRM and Chat deployments to activate their research execution endpoints. No provider balance was spent in validation.
+5. Complete the actual business rate card: seven missing service prices and three ambiguous legacy prices remain from the preceding Mail audit. Do not invent the $885 billing units or the $45 storage basis. Vercel Workspace OAuth also still needs its private client credentials and account consent.
+
+## Remaining product work — these gaps are not all closed
+
+This is a tested implementation release, not a fully live autonomous sales system. Full delivery/complaint telemetry, deliverability configuration, automatic sourced-contact enrichment/import, cross-system conversion attribution, deposit/credit-term policies, customer self-service quote acceptance, capacity-aware scheduling, autonomous fulfillment and recovery tooling remain. The first payment/booking implementation collects full payment before final appointment creation; it does not reserve a pre-payment slot. Google Calendar cannot atomically reserve against unrelated external writers, so manual calendar edits can race the availability check. Uncertain reservations require reconciliation; there is no unattended retry of those actions.
+
+The generic medical/mortuary/towing/courier modules provide tenant-separated service intake and quoted jobs. They do not claim clinical eligibility, medical dispatch, chain-of-custody, multi-state permit validation, insurance credentialing, mortuary release, towing inventory or specialized dispatch completion. A nationwide mortuary client's legal business identity, owner account, authorized mailbox, calendar, Stripe account, coverage network and operating requirements are still needed. Do not place medical details or decedent documents in general chat/intake; use operational references and the client's approved records system.

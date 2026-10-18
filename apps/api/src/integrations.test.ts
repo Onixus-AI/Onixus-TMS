@@ -26,7 +26,7 @@ test("webhook URLs typed in by a company only ever reach the public internet", (
   for (const ip of ["8.8.8.8", "2606:4700::1111"]) assert.equal(isPublicIp(ip), true, ip);
   for (const bad of ["http://hooks.zapier.com/x", "https://10.0.0.1/hook", "https://localhost/hook", "https://example.com:8443/x", "https://u:p@example.com/x", "not a url"]) assert.throws(() => checkWebhookUrl(bad), Error, bad);
   assert.equal(checkWebhookUrl("https://n8n.harbor.example/webhook/abc").host, "n8n.harbor.example");
-  assert.match(eventId("leg:44444444-4444"), /^onx[0-9a-f]+$/, "a valid Google event id (base32hex)");
+  assert.match(eventId("leg:44444444-4444"), /^[0-9a-v]{5,1024}$/, "a valid Google event id (base32hex)");
 });
 
 test("AI key, Zapier, Slack, Google Calendar, Drive and Sheets: connected, checked and used", async () => {

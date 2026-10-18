@@ -1,3 +1,5 @@
+import {operationsRoutes,stripeWebhook} from "./routes/operations.js";
+import {suiteRoutes,startSuiteWorker} from "./routes/suite.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { crmProvider, emailProvider, fmcsa, llmProvider, NotImplementedError, providerStatus, storeFromEnv, StoreError, supabaseFiles, supabaseInvite, supabaseUser, trackingProvider, type Env, type Store } from "@onixus/providers";
@@ -55,6 +57,7 @@ export function createApp(env: Env, deps: Deps = {}) {
     }),
   };
 
+  startSuiteWorker(ctx);
   const app = express();
   app.disable("x-powered-by");
   // Keep the raw bytes: webhook signatures are computed over them, not over re-serialized JSON.
@@ -74,6 +77,7 @@ export function createApp(env: Env, deps: Deps = {}) {
   app.get("/health", (_req, res) => res.json({ ok: true }));
   // Signed by the sender instead of the API key (see routes/containers.ts).
   app.post("/webhooks/port", portWebhook(ctx));
+  app.post("/webhooks/stripe/:connection",stripeWebhook(ctx));
   // A provider's sign-in sends the browser back here; the signed state identifies the company.
   app.get("/connections/oauth/callback", oauthCallback(ctx));
 
@@ -122,6 +126,7 @@ export function createApp(env: Env, deps: Deps = {}) {
 
   // The office: owners and dispatchers (or the platform acting inside a company).
   app.use(roles("OWNER", "DISPATCHER"));
+  app.use(operationsRoutes(ctx),suiteRoutes(ctx));
   app.use(loadRoutes(ctx), legRoutes(ctx), orderRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx), overviewRoutes(ctx), commsRoutes(ctx), mcpRoutes(ctx), connectionRoutes(ctx));
 
   // Live positions of this company's trucks. The GPS server is shared, so

@@ -39,8 +39,8 @@ export function SignIn() {
   };
   return (
     <div className="auth">
-      <h1>Onixus Logistics OS</h1>
-      <p className="muted">Dispatch, drivers and billing for cargo vans to drayage.</p>
+      <h1>Onixus TMS</h1>
+      <p className="muted">Transport operations, connected to your business workspace.</p>
       <form className="card stack" onSubmit={submit}>
         <h3>{mode === "in" ? "Sign in" : mode === "up" ? "Create your account" : "Reset your password"}</h3>
         <Field label="Email"><input name="email" type="email" autoComplete="email" required /></Field>
@@ -96,7 +96,7 @@ export function Onboarding({ email, onDone }: { email: string; onDone: () => voi
         <h3>Set up your business</h3>
         <p className="muted small">Signed in as {email}. Driving for a company? Ask the owner to invite this email instead, then sign in again.</p>
         <Field label="I am">
-          <Select name="kind" value={kind} onChange={setKind} options={[["COMPANY", "A trucking or logistics company"], ["OWNER_OPERATOR", "An owner-operator (I drive my own truck or van)"]]} />
+          <Select name="kind" value={kind} onChange={setKind} options={[["COMPANY", "A transport or service business"], ["OWNER_OPERATOR", "An owner-operator (I drive my own truck or van)"]]} />
         </Field>
         <Field label="Business name"><input name="company_name" required /></Field>
         {kind === "OWNER_OPERATOR" && (

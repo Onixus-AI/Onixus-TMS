@@ -463,3 +463,23 @@ main { min-width: 0; }
 /* A real logo sits on a light tile, the way app icons do, so every brand colour reads on the dark page. */
 .mark.logo { background: linear-gradient(160deg, #ffffff, #e9edf2); }
 .mark.logo svg { width: 22px; height: 22px; }
+
+/* Shared workspace shell: quiet surfaces, collapsible navigation and compact controls. */
+.tms-shell {display:grid;grid-template-columns:208px minmax(0,1fr);max-width:none;padding:0;min-height:100vh;gap:0;background:#111113}
+.tms-shell>.topbar {grid-column:1/-1;position:sticky;top:0;z-index:10;border-radius:0;margin:0;background:#171719;min-height:68px;padding:12px 24px;border-bottom:1px solid var(--line)}
+.tms-shell>.topbar>button {margin-left:auto}
+.tms-shell>main {padding:30px clamp(18px,3vw,52px);width:100%;max-width:1440px;margin:0 auto;min-width:0}
+.tms-sidebar {background:#171719;border-right:1px solid var(--line);padding:20px 12px}
+.tms-navigation {display:flex;flex-direction:column;gap:4px}
+.tms-navigation button {text-align:left;background:transparent;border:0;box-shadow:none;color:var(--text-2);border-radius:9px;padding:10px 14px;font-weight:400}
+.tms-navigation button.active {background:#2a2a2e;color:#fff}
+.tms-suite-links {display:flex;flex-direction:column;gap:12px;margin:28px 14px;color:var(--muted)}
+.tms-suite-links a {color:var(--text-2);text-decoration:none}
+.tms-shell.sidebar-collapsed {grid-template-columns:minmax(0,1fr)}
+.tms-shell .card {border-radius:14px;background:#19191c;box-shadow:none;border:1px solid var(--line)}
+.transport-modules {display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:12px}
+.transport-module {display:flex;flex-direction:column;gap:8px;padding:16px;background:#202023;border:1px solid var(--line);border-radius:10px}
+.transport-module>span {display:flex;gap:10px;align-items:center}
+.transport-module input {width:auto}
+.transport-module small {color:var(--muted);line-height:1.5}
+@media(max-width:760px){.tms-shell{grid-template-columns:minmax(0,1fr)}.tms-sidebar{border-right:0;border-bottom:1px solid var(--line)}.tms-navigation{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.tms-shell>.topbar{padding:12px 16px}.tms-shell>main{padding:22px 16px}}

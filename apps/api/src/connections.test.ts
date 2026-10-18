@@ -82,6 +82,7 @@ test("a company connects its own GPS, CRM, mailbox and books, and the app uses t
     assert.equal(list.encryption, true);
     const ids = Object.fromEntries(list.categories.map((c: any) => [c.category, c.providers.map((p: any) => p.id)]));
     assert.deepEqual(ids, {
+      payments: ['stripe'],
       email: ["gmail", "outlook"], inbox: ["veltra"], crm: ["hubspot", "veltra-crm"], finance: ["quickbooks", "veltrafi"], tracking: ["samsara", "motive", "traccar"],
       ai: ["onixus-ai", "openai", "anthropic", "gemini"], automation: ["zapier", "make", "n8n"], chat: ["slack", "microsoft-teams"],
       calendar: ["google-calendar", "outlook-calendar", "google-meet"], documents: ["google-drive", "google-docs"], reports: ["google-sheets"], social: ["linkedin"],
