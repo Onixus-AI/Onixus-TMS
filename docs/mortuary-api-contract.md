@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Contract version | **1.0.0 — FROZEN 2026-10-22** |
+| Contract version | **1.1.0 — FROZEN 2026-10-22** (1.0.0 frozen before implementation; 1.1.0 adds only clarifications and additive fields, see [Change log](#change-log)) |
 | Owner (backend) | Onixus TMS API (`apps/api/src/routes/mortuary.ts`) |
 | Consumer (frontend) | Cursor-owned web components |
 | Change policy | Any change after freeze gets a new version, a row in [Change log](#change-log), and is called out in the PR description. Additive fields are minor versions; anything that removes, renames or re-types a field, status or rule is a major version. |
@@ -341,7 +341,7 @@ Body: `expected_version` plus any of `requesting_organization`, `crm_system`, `c
 
 ### 4.7 `GET /mortuary/cases/:id/history` → 200 `{ history }`
 
-`history[]`: `{ id, from_status, to_status, reason, actor: { kind: "USER"|"PLATFORM", user_id?, member_id? }, created_at }`, oldest first.
+`history[]`: `{ id, from_status, to_status, reason, actor: { kind: "USER"|"PLATFORM", user_id?, member_id?, role? }, created_at }`, oldest first.
 
 ---
 
@@ -505,7 +505,7 @@ Replay of the same `request_key` → `200` with the original event and `"replaye
 }
 ```
 
-`events` are exactly what was recorded. `effective` excludes `CORRECTION` rows and applies every correction in `seq` order. `chain_valid` is computed over the events returned from `seq` 1; it is `null` on pages that do not start at `seq` 1.
+`events` are exactly what was recorded (paged by `after_seq`/`limit`). `effective`, `current_custodian` and `open_incidents` always describe the **whole case**, not just the page. `effective` excludes `CORRECTION` rows and applies every correction in `seq` order. `open_incidents[]` is `{ seq, incident_key, severity, category, description }`. `chain_valid` is computed over the whole log from `seq` 1 and is returned only when `after_seq` is `0`; it is `null` on later pages.
 
 ---
 
@@ -527,7 +527,7 @@ All categories are restricted: file downloads and review need restricted access.
 
 - `GET /mortuary/cases/:id/documents` → `{ documents }`
 - `POST /mortuary/cases/:id/documents` → 201 `{ document, upload: { signed_url, token, expires_in_seconds: 7200 } }` (`Cache-Control: no-store`)
-  `{ request_key, category, file_name (1–200), content_type, size_bytes (1–26214400) }`. Upload the bytes with a `PUT` to `signed_url` (Supabase signed upload). A replayed `request_key` returns the same document and a fresh upload URL while it is still `UPLOAD_PENDING`.
+  `{ request_key, category, file_name (1–200), content_type, size_bytes (1–26214400) }`. Upload the bytes with a `PUT` to `signed_url` (Supabase signed upload). A replayed `request_key` returns the same document and a fresh upload URL while it is still `UPLOAD_PENDING`; once the document has moved on, `upload` is `null`.
 - `POST /mortuary/cases/:id/documents/:docId/uploaded` → `{ document }` — `{ expected_version }`. The server checks the file exists in storage (`409 UPLOAD_NOT_FOUND` if not) and moves it to `RECEIVED`.
 - `POST /mortuary/cases/:id/documents/:docId/review` → `{ document }` — `{ expected_version, decision: "APPROVED"|"REJECTED", note? (≤ 1000, required for REJECTED) }`. Needs restricted access; document must be `RECEIVED`.
 - `POST /mortuary/cases/:id/documents/:docId/download-url` → `{ url, expires_in_seconds: 120 }` (`Cache-Control: no-store`). Needs restricted access; document must be `RECEIVED`, `APPROVED` or `REJECTED`.
@@ -549,7 +549,7 @@ All categories are restricted: file downloads and review need restricted access.
 
 ### 9.1 Objects
 
-`Quote`: `{ id, case_id, number (Q1, Q2… per case), status, lines: ChargeLine[], subtotal_cents, currency, valid_until, notes, issued_at, accepted_at, acceptance_reference, version, created_at }`.
+`Quote`: `{ id, case_id, number (Q1, Q2… per case), status, lines: ChargeLine[], subtotal_cents, currency, valid_until, notes, issued_at, accepted_at, acceptance_reference, decline_reason, version, created_at }`.
 
 `Invoice`: `{ id, case_id, invoice_number (MI-YYYY-XXXXXX), quote_id, status, lines: ChargeLine[], subtotal_cents, currency, due_date, issued_at, voided_at, void_reason, version, payment: { status: "NOT_VERIFIED", provider: null, verified_at: null, notice } }`.
 
@@ -595,6 +595,7 @@ No endpoint sends an invoice, creates a checkout, charges a card or records a pa
 
 - `POST /mortuary/cases/:id/international/requirements` → 201 `{ requirement }` — `{ request_key, country, jurisdiction_role, authority, description, document_category?, source_type, source_reference, reviewed_on }`. `reviewed_on` ≤ today. `country` must be the record's origin, destination or a transit country (any for `CARRIER`).
 - `PATCH /mortuary/cases/:id/international/requirements/:reqId` → `{ requirement }` — `{ expected_version, status?, status_note?, source_reference?, reviewed_on? }`. `NOT_APPLICABLE` requires `status_note`. Changing a requirement after approval revokes approval.
+- Adding a requirement after approval also revokes approval (`release_status` → `REVOKED`); an owner must approve again.
 
 ### 10.4 Milestones (append-only)
 
@@ -640,4 +641,5 @@ Server logs never include request bodies for mortuary routes. Error messages nev
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0.0 | 2026-10-22 | Initial frozen contract. |
+| 1.0.0 | 2026-10-22 | Initial frozen contract (committed before implementation). |
+| 1.1.0 | 2026-10-22 | Additive / clarifying only, found while implementing. No field, status or rule was removed or renamed. (1) §7.3: `effective`, `current_custodian`, `open_incidents` always cover the whole case; `open_incidents[]` shape defined; `chain_valid` only when `after_seq=0`. (2) §8.3: document replay returns `upload: null` once the document is past `UPLOAD_PENDING`. (3) §9.1: `Quote.decline_reason` added. (4) §4.7: `actor.role` added to history. (5) §10.3: adding a requirement after approval revokes approval, like changing one. |

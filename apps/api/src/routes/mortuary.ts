@@ -1147,11 +1147,11 @@ async function moveLeg(ctx: Ctx, c: Case, leg: Leg, body: LegStatusBody): Promis
 }
 
 /** The hash covers exactly these fields, normalised so a database round trip (timestamp format, key order) does not change it. */
-const hashEvent = (prev: string | null, e: { case_id: string; seq: number; kind: string; leg_id?: string | null; occurred_at: string; recorded_at: string; recorded_by: unknown; payload: unknown }) =>
+export const hashEvent = (prev: string | null, e: { case_id: string; seq: number; kind: string; leg_id?: string | null; occurred_at: string; recorded_at: string; recorded_by: unknown; payload: unknown }) =>
   sha256(`${prev ?? ""}\n${canonicalJson({ case_id: e.case_id, seq: e.seq, kind: e.kind, leg_id: e.leg_id ?? null, occurred_at: iso(e.occurred_at), recorded_at: iso(e.recorded_at), recorded_by: e.recorded_by, payload: e.payload })}`);
 
 /** Recompute the chain; any edited, removed or reordered row breaks it. */
-function chainValid(events: readonly Stored[]): boolean {
+export function chainValid(events: readonly Stored[]): boolean {
   let prev: string | null = null;
   for (const [i, e] of events.entries()) {
     if (e.seq !== i + 1 || (e.prev_hash ?? null) !== prev) return false;
