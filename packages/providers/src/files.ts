@@ -7,25 +7,35 @@ export type SignedUpload = { path: string; token: string; signedUrl: string };
 
 export interface FileStore {
   uploadUrl(path: string): Promise<SignedUpload>;
-  downloadUrl(path: string): Promise<string>;
+  /** A signed link to one file, valid for `seconds` (default one hour). */
+  downloadUrl(path: string, seconds?: number): Promise<string>;
+  /** Whether the file is in storage. Optional so older test doubles still fit. */
+  exists?(path: string): Promise<boolean>;
   /** The file's bytes, for the API to read itself (delivery orders). */
   download(path: string): Promise<Buffer>;
 }
 
 const BUCKET = "documents";
 
-export function supabaseFiles(env: Env): FileStore {
-  const bucket = () => supabase(env).storage.from(BUCKET);
+/** Files in a private bucket: "documents" (loads) by default, "mortuary-documents" for mortuary cases. */
+export function supabaseFiles(env: Env, bucketName: string = BUCKET): FileStore {
+  const bucket = () => supabase(env).storage.from(bucketName);
   return {
     async uploadUrl(path) {
       const { data, error } = await bucket().createSignedUploadUrl(path);
       if (error || !data) throw Object.assign(new Error(`Storage: ${error?.message ?? "no upload URL"}`), { status: 502 });
       return { path: data.path, token: data.token, signedUrl: data.signedUrl };
     },
-    async downloadUrl(path) {
-      const { data, error } = await bucket().createSignedUrl(path, 3600);
+    async downloadUrl(path, seconds = 3600) {
+      const { data, error } = await bucket().createSignedUrl(path, seconds);
       if (error || !data) throw Object.assign(new Error(`Storage: ${error?.message ?? "no download URL"}`), { status: 502 });
       return data.signedUrl;
+    },
+    async exists(path) {
+      const slash = path.lastIndexOf("/");
+      const { data, error } = await bucket().list(path.slice(0, slash), { search: path.slice(slash + 1), limit: 2 });
+      if (error) throw Object.assign(new Error(`Storage: ${error.message}`), { status: 502 });
+      return (data ?? []).some((f) => f.name === path.slice(slash + 1));
     },
     async download(path) {
       const { data, error } = await bucket().download(path);
