@@ -1168,9 +1168,10 @@ async function custodyPage(ctx: Ctx, c: Case, afterSeq: number, limit: number, l
   const page = pool.filter((e) => e.seq > afterSeq).slice(0, limit);
   const more = pool.filter((e) => e.seq > afterSeq).length > page.length;
   const view = (e: Stored) => ({ id: e.id, case_id: e.case_id, seq: e.seq, kind: e.kind, leg_id: e.leg_id ?? null, occurred_at: e.occurred_at, recorded_at: e.recorded_at, recorded_by: e.recorded_by, payload: e.payload, prev_hash: e.prev_hash ?? null, hash: e.hash });
-  if (legId) return { events: page.map(view), next_after_seq: more ? page.at(-1)!.seq : null };
+  if (legId) return { events: page.map(view), last_seq: all.at(-1)?.seq ?? 0, next_after_seq: more ? page.at(-1)!.seq : null };
   return {
     events: page.map(view),
+    last_seq: all.at(-1)?.seq ?? 0,
     effective: eff.map((e) => ({ seq: e.seq, kind: e.kind, leg_id: e.leg_id ?? null, occurred_at: e.occurred_at, payload: e.payload, corrected_by: e.corrected_by })),
     current_custodian: currentCustodian(eff),
     open_incidents: openIncidents(eff).map((e) => ({ seq: e.seq, ...e.payload })),

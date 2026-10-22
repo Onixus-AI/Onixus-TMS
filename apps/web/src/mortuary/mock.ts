@@ -170,6 +170,8 @@ const INVOICE: Invoice = {
 
 /** Fictional contract-shaped records for tests. live is always false. */
 export class MockMortuaryClient implements MortuaryClient {
+  async action(): Promise<Record<string, unknown>> { throw new MortuaryError(501, "Case writes are unavailable in the sample.", "NOT_IMPLEMENTED"); }
+  async driverStatus(): Promise<BoardLeg> { throw new MortuaryError(501, "Driver writes are unavailable in the sample.", "NOT_IMPLEMENTED"); }
   readonly source = "mock" as const;
   readonly live = false;
   private fault: { action: string; message: string } | null = null;

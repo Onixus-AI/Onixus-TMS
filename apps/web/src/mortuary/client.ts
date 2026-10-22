@@ -53,6 +53,8 @@ export interface CustodyInput {
 export interface MortuaryClient {
   readonly source: "http" | "mock";
   readonly live: boolean;
+  action(caseId: string, resource: string, body: Record<string, unknown>, method?: "POST" | "PATCH" | "PUT"): Promise<Record<string, unknown>>;
+  driverStatus(legId: string, body: { expected_version: number; to: "EN_ROUTE" | "IN_CUSTODY" | "DELIVERED" }): Promise<BoardLeg>;
   listCases(query?: CaseListQuery): Promise<{ cases: MortuaryCase[]; next_cursor: string | null }>;
   getCase(id: string): Promise<CaseDetail>;
   createCase(input: CreateCaseInput): Promise<{ case: MortuaryCase; replayed: boolean }>;
@@ -125,6 +127,15 @@ export function createHttpMortuaryClient(options: {
   return {
     source: "http",
     live: true,
+    async action(caseId, resource, body, method = "POST") {
+      if (!/^[a-z0-9/-]*$/i.test(resource)) throw new Error("Invalid case action");
+      const { data } = await request<Record<string, unknown>>(`/mortuary/cases/${caseId}${resource ? `/${resource}` : ""}`, { method, body });
+      return data;
+    },
+    async driverStatus(legId, body) {
+      const { data } = await request<{ leg: BoardLeg }>(`/driver/mortuary/legs/${legId}/status`, { method: "POST", body });
+      return data.leg;
+    },
     async listCases(query) {
       const { data } = await request<{ cases: MortuaryCase[]; next_cursor: string | null }>(`/mortuary/cases${queryString(query)}`);
       return { cases: data.cases ?? [], next_cursor: data.next_cursor ?? null };

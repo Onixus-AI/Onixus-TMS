@@ -1,5 +1,7 @@
+import { InternationalEditor } from "./international-edit";
+import { BillingWorkspace, LegWorkspace } from "./actions";
 import { DocumentWorkspace } from "./documents";
-import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { errorText, type CreateCaseInput, type CustodyInput, type MortuaryClient } from "./client";
 import { formatMoney, formatWhen, isoToLocalInput, localInputToIso, newRequestKey, placeLine } from "./format";
 import { QUEUE_LABELS } from "./operations";
@@ -264,7 +266,7 @@ export function CustodyForm({ legs, expectedSeq, submit }: { legs: Leg[]; expect
       kind: "IDENTITY_CHECK",
       leg_id: String(form.get("leg_id") ?? "") || null,
       occurred_at: occurred,
-      payload: { method: String(form.get("method") ?? "FACILITY_STAFF_CONFIRMATION"), outcome: "VERIFIED", note: String(form.get("note") ?? "") },
+      payload: { method: String(form.get("method") ?? "FACILITY_STAFF_CONFIRMATION"), outcome: String(form.get("outcome") ?? "VERIFIED"), ...(form.get("observed_tag") ? { observed_tag: String(form.get("observed_tag")) } : {}), note: String(form.get("note") ?? "") },
     };
     setPhase("saving");
     setMessage("");
@@ -287,6 +289,7 @@ export function CustodyForm({ legs, expectedSeq, submit }: { legs: Leg[]; expect
         <label>When<input name="occurred_at" type="datetime-local" required defaultValue={isoToLocalInput(new Date().toISOString())} /></label>
         <label>Method<select name="method" defaultValue="FACILITY_STAFF_CONFIRMATION"><option value="FACILITY_STAFF_CONFIRMATION">Facility staff confirmation</option><option value="TAG">Tag</option><option value="WRISTBAND">Wristband</option><option value="PAPERWORK">Paperwork</option></select></label>
       </div>
+      <label>Identity outcome<select name="outcome"><option value="VERIFIED">Verified</option><option value="DISCREPANCY">Discrepancy</option><option value="UNABLE">Unable to verify</option></select></label><label>Observed tag (compared by server, not stored in the event)<input name="observed_tag" maxLength={80}/></label>
       <label>How was identification confirmed?<input name="note" minLength={3} required placeholder="Wristband, case reference, or facility tag" /></label>
       <button type="submit" disabled={phase === "saving"}>{phase === "saving" ? "Waiting for the server" : "Record identity check"}</button>
       <div aria-live="polite">
@@ -322,9 +325,9 @@ export function TransferForm({ legs, expectedSeq, submit }: { legs: Leg[]; expec
       leg_id: String(form.get("leg_id") ?? ""),
       occurred_at: occurred,
       payload: {
-        releasing_party: { kind: "RELEASING_FACILITY", name: releasing, organization: String(form.get("releasing_org") ?? "") },
-        receiving_party: { kind: "TRANSPORT_STAFF", name: receiving },
-        location: { name: String(form.get("location") ?? releasing), facility_type: "OTHER", country: "US" },
+        releasing_party: { kind: String(form.get("releasing_kind") ?? "RELEASING_FACILITY"), name: releasing, organization: String(form.get("releasing_org") ?? "") },
+        receiving_party: { kind: String(form.get("receiving_kind") ?? "TRANSPORT_STAFF"), name: receiving },
+        location: { name: String(form.get("location") ?? releasing), facility_type: "OTHER", country: String(form.get("country") ?? "US").toUpperCase() },
         releasing_acknowledgment: { method: "TYPED_NAME", typed_name: releasing, acknowledged_at: acknowledged },
         receiving_acknowledgment: { method: "TYPED_NAME", typed_name: receiving, acknowledged_at: acknowledged },
       },
@@ -348,11 +351,14 @@ export function TransferForm({ legs, expectedSeq, submit }: { legs: Leg[]; expec
       <div className="m-filters">
         <label>Leg<select name="leg_id" defaultValue={legs[0]?.id}>{legs.map((leg) => <option key={leg.id} value={leg.id}>{leg.seq}</option>)}</select></label>
         <label>When<input name="occurred_at" type="datetime-local" required defaultValue={isoToLocalInput(new Date().toISOString())} /></label>
+        <label>Releasing party type<select name="releasing_kind">{["RELEASING_FACILITY","TRANSPORT_STAFF","FUNERAL_HOME","AIRLINE_CARGO","RECEIVING_AGENT","MEDICAL_EXAMINER","OTHER"].map(k => <option key={k} value={k}>{human(k)}</option>)}</select></label>
+        <label>Receiving party type<select name="receiving_kind" defaultValue="TRANSPORT_STAFF">{["TRANSPORT_STAFF","FUNERAL_HOME","AIRLINE_CARGO","RECEIVING_AGENT","FAMILY_REPRESENTATIVE","RELEASING_FACILITY","OTHER"].map(k => <option key={k} value={k}>{human(k)}</option>)}</select></label>
         <label>Releasing party<input name="releasing" required minLength={2} /></label>
         <label>Releasing organization<input name="releasing_org" /></label>
         <label>Receiving party<input name="receiving" required minLength={2} /></label>
-        <label>Location name<input name="location" required /></label>
+        <label>Location name<input name="location" required /></label><label>Country code<input name="country" defaultValue="US" required minLength={2} maxLength={2}/></label>
       </div>
+      <label><input type="checkbox" required/>Both parties supplied these typed-name acknowledgments.</label>
       <button type="submit" disabled={phase === "saving"}>{phase === "saving" ? "Waiting for the server" : "Record transfer"}</button>
       <div aria-live="polite">
         {phase === "saving" && <p role="status">Waiting for the server. Nothing is recorded until the event returns.</p>}
@@ -526,11 +532,11 @@ export function CaseSections({
         {tabs.map((id) => <button key={id} type="button" role="tab" aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => onTab(id)}>{human(id)}</button>)}
       </div>
       {tab === "overview" && <Overview detail={detail} role={role} client={client} />}
-      {tab === "legs" && <Legs caseId={detail.case.id} client={client} />}
+      {tab === "legs" && <LegWorkspace caseId={detail.case.id} client={client} />}
       {tab === "dispatch" && <p className="m-muted">Assignments are on the dispatch board. This case has {detail.summary.legs.total} leg{detail.summary.legs.total === 1 ? "" : "s"}.</p>}
       {tab === "custody" && <CustodyCase caseId={detail.case.id} client={client} onChanged={onChanged} />}
       {tab === "documents" && <DocumentsCase caseId={detail.case.id} client={client} canReview={role === "OWNER" || detail.case.restricted_access} />}
-      {tab === "quote" && <BillingCase caseId={detail.case.id} organization={detail.case.requesting_organization.name} client={client} />}
+      {tab === "quote" && <BillingWorkspace caseId={detail.case.id} organization={detail.case.requesting_organization.name} client={client} role={role} />}
       {tab === "international" && <InternationalCase caseId={detail.case.id} client={client} canApprove={role === "OWNER"} onChanged={onChanged} />}
       {tab === "activity" && <ActivityCase caseId={detail.case.id} client={client} />}
     </div>
@@ -572,17 +578,22 @@ function CustodyCase({ caseId, client, onChanged }: { caseId: string; client: Mo
   const [page, setPage] = useState<CustodyPage | null>(null);
   const [legs, setLegs] = useState<Leg[]>([]);
   const [error, setError] = useState("");
-  if (!page && !error) {
-    void Promise.all([client.custody(caseId), client.listLegs(caseId)]).then(([custody, found]) => { setPage(custody); setLegs(found); }, (reason: unknown) => setError(errorText(reason)));
-  }
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let active = true;
+    Promise.all([client.custody(caseId), client.listLegs(caseId)]).then(([custody, found]) => {
+      if (active) { setPage(custody); setLegs(found); setError(""); }
+    }, reason => { if (active) setError(errorText(reason)); });
+    return () => { active = false; };
+  }, [client, caseId, tick]);
   if (error) return <ErrorBlock message={error} />;
   if (!page) return <LoadingBlock label="Loading custody" />;
-  const expected = page.events.at(-1)?.seq ?? 0;
+  const expected = page.last_seq ?? page.events.at(-1)?.seq ?? 0;
   return (
     <div className="m-stack">
       <CustodyHistory page={page} />
-      <section className="m-panel"><h2>Identity check</h2><CustodyForm legs={legs} expectedSeq={expected} submit={async (body) => { const result = await client.recordCustody(caseId, body); onChanged(); return result; }} /></section>
-      <section className="m-panel"><TransferForm legs={legs} expectedSeq={expected} submit={async (body) => { const result = await client.recordCustody(caseId, body); onChanged(); return result; }} /></section>
+      <section className="m-panel"><h2>Identity check</h2><CustodyForm legs={legs} expectedSeq={expected} submit={async (body) => { const result = await client.recordCustody(caseId, body); setTick(n => n + 1); onChanged(); return result; }} /></section>
+      <section className="m-panel"><TransferForm legs={legs} expectedSeq={expected} submit={async (body) => { const result = await client.recordCustody(caseId, body); setTick(n => n + 1); onChanged(); return result; }} /></section>
     </div>
   );
 }
@@ -610,16 +621,16 @@ function InternationalCase({ caseId, client, canApprove, onChanged }: { caseId: 
   if (error) return <ErrorBlock message={error} />;
   if (!view || !checklist) return <LoadingBlock label="Loading international coordination" />;
   return (
-    <InternationalPanel
+    <div className="m-stack"><InternationalEditor caseId={caseId} view={view} client={client} canApprove={canApprove} onSaved={() => { setView(null); setChecklist(null); onChanged(); }}/><InternationalPanel
       checklistComplete={checklist.complete}
       view={view}
       canApprove={canApprove}
       onApprove={async (body) => {
         const result = await client.approveRelease(caseId, body);
-        onChanged();
+        setView(null); setChecklist(null); onChanged();
         return { release_status: result.record?.release_status ?? "NOT_REQUESTED", legal_clearance: result.legal_clearance, approved_at: result.record?.release_approved_at };
       }}
-    />
+    /></div>
   );
 }
 

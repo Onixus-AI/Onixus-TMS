@@ -39,8 +39,8 @@ Freight tabs are unchanged. Mortuary is a second area in the same sidebar.
 
 1. Backend and frontend are combined on the integration branch; production main has not been changed. Staging migration, private storage and authenticated acceptance remain required.
 2. Document upload, private download and restricted review now have forms. Failed uploads reuse their request key. Real signed storage upload/download still needs staging verification.
-3. The driver view lists assigned legs. It does not yet post driver status or driver custody events.
-4. Quote drafting, issuing, invoices, requirement edits, and milestones are read-only.
-5. Case list search cannot see cases outside the first 100.
+3. Driver status and identity/transfer custody forms are implemented against contract 1.2.0. Hosted authenticated driver acceptance is pending.
+4. Office write controls now cover quotes/invoices and international requirements/milestones. Provider payment collection remains disconnected.
+5. Case list loads at most 2,000 cases and errors beyond that bound instead of showing a silently incomplete result.
 6. Fleet labels depend on the existing `/drivers` and `/trucks` payloads.
-7. Nothing here was deployed, migrated, billed, emailed, or booked.
+7. No mortuary production migration/deployment, billing, email or booking was performed. An empty client organization and pending owner invitation were reserved through the existing account tables.

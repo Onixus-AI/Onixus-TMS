@@ -1,11 +1,26 @@
 import { useEffect, useState } from "react";
 import { siGmail, siHubspot } from "simple-icons";
+import { CaseActions, RestrictedEditor } from "./actions";
+import { DriverLegWorkspace } from "./driver-work";
 import { errorText, type MortuaryClient } from "./client";
 import { formatWhen } from "./format";
 import { loadOperations } from "./operations";
 import type { BoardLeg, FleetOption, MortuaryCase, OperationsSnapshot, QueueId, Role } from "./types";
 import { CaseIntake, CaseSections, CaseTable, DispatchBoard, ErrorBlock, LoadingBlock, OperationsDashboard } from "./ui";
 import "./mortuary.css";
+
+async function loadCasePages(client: MortuaryClient) {
+  const cases: MortuaryCase[] = []; let cursor: string | null = null;
+  const seen = new Set<string>();
+  for (let page = 0; page < 20; page += 1) {
+    const result = await client.listCases({ limit: 100, cursor }); cases.push(...result.cases);
+    cursor = result.next_cursor;
+    if (!cursor) return cases;
+    if (seen.has(cursor)) throw new Error("The case API returned a repeated page cursor.");
+    seen.add(cursor);
+  }
+  throw new Error("More than 2,000 cases matched. Add server-side filters before loading this workspace.");
+}
 
 export type MortuaryTab = "operations" | "cases" | "dispatch" | "international";
 
@@ -41,11 +56,11 @@ export function MortuaryOffice({
     setError("");
     Promise.all([
       loadOperations(client),
-      client.listCases({ limit: 100 }),
+      loadCasePages(client),
     ]).then(([next, list]) => {
       if (!active) return;
       setSnapshot(next);
-      setCases(list.cases);
+      setCases(list);
       setStale(null);
     }, (reason: unknown) => {
       if (!active) return;
@@ -79,7 +94,7 @@ export function MortuaryOffice({
           {role !== "DRIVER" && <CaseIntake onCreate={async (input) => { const created = await client.createCase(input); onOpenCase(created.case.id); reload(); }} />}
         </div>
       )}
-      {tab === "cases" && caseId && <CaseScreen caseId={caseId} role={role} client={client} onChanged={reload} />}
+      {tab === "cases" && caseId && <CaseScreen key={caseId} caseId={caseId} role={role} client={client} onChanged={reload} />}
       {tab === "dispatch" && <DispatchScreen client={client} fleet={fleet} canAssign={role !== "DRIVER"} />}
       {tab === "international" && <InternationalList cases={cases.filter((item) => item.international)} onOpen={onOpenCase} />}
     </div>
@@ -88,16 +103,18 @@ export function MortuaryOffice({
 
 function CaseScreen({ caseId, role, client, onChanged }: { caseId: string; role: Role; client: MortuaryClient; onChanged: () => void }) {
   const [tab, setTab] = useState("overview");
+  const [tick, setTick] = useState(0);
   const [detail, setDetail] = useState<Awaited<ReturnType<MortuaryClient["getCase"]>> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     client.getCase(caseId).then((next) => { if (active) setDetail(next); }, (reason: unknown) => { if (active) setError(errorText(reason)); });
     return () => { active = false; };
-  }, [client, caseId]);
+  }, [client, caseId, tick]);
   if (error) return <ErrorBlock message={error} />;
   if (!detail) return <LoadingBlock label="Loading case" />;
-  return <CaseSections detail={detail} tab={tab} onTab={setTab} role={role} client={client} onChanged={onChanged} />;
+  const reload = () => { setDetail(null); setError(""); setTick(n => n + 1); onChanged(); };
+  return <div className="m-stack"><button type="button" onClick={reload}>Reload case from server</button><CaseSections key={caseId} detail={detail} tab={tab} onTab={setTab} role={role} client={client} onChanged={reload} />{tab === "overview" && <><CaseActions detail={detail} client={client} onSaved={reload}/><RestrictedEditor detail={detail} client={client} onSaved={reload}/></>}</div>;
 }
 
 function DispatchScreen({ client, fleet, canAssign }: { client: MortuaryClient; fleet: { drivers: FleetOption[]; vehicles: FleetOption[] }; canAssign: boolean }) {
@@ -185,12 +202,9 @@ export function DriverMortuary({ client }: { client: MortuaryClient }) {
       {error && <ErrorBlock message={error} />}
       {!legs && !error && <LoadingBlock label="Loading your mortuary legs" />}
       {legs && legs.length === 0 && <p className="m-panel">No mortuary legs are assigned to you.</p>}
+      <button type="button" onClick={() => { setError(""); void client.driverLegs().then(setLegs, e => setError(errorText(e))); }}>Refresh assignments</button>
       {legs?.map((leg) => (
-        <article key={leg.id} className="m-card">
-          <strong>{leg.case_number}</strong> · {leg.status}
-          <p>{leg.from.name} → {leg.to.name}</p>
-          <p className="m-muted">{formatWhen(leg.scheduled_departure_at)}</p>
-        </article>
+        <DriverLegWorkspace key={`${leg.id}-${leg.version}`} leg={leg} client={client} onChanged={() => { void client.driverLegs().then(setLegs, e => setError(errorText(e))); }}/>
       ))}
     </div>
   );

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Contract version | **1.1.0 — FROZEN 2026-10-22** (1.0.0 frozen before implementation; 1.1.0 adds only clarifications and additive fields, see [Change log](#change-log)) |
+| Contract version | **1.2.0 — FROZEN 2026-10-22** (1.0.0 frozen before implementation; 1.1.0 adds only clarifications and additive fields, see [Change log](#change-log)) |
 | Owner (backend) | Onixus TMS API (`apps/api/src/routes/mortuary.ts`) |
 | Consumer (frontend) | Cursor-owned web components |
 | Change policy | Any change after freeze gets a new version, a row in [Change log](#change-log), and is called out in the PR description. Additive fields are minor versions; anything that removes, renames or re-types a field, status or rule is a major version. |
@@ -432,6 +432,7 @@ Caller must be a signed-in person linked to a driver record (existing rule). Onl
   `DriverLeg` = `{ id, case_id, case_number, seq, mode, from, to, scheduled_departure_at, scheduled_arrival_at, status, version, vehicle_id }`. No contacts, no decedent data, no tag number.
 - `POST /driver/mortuary/legs/:legId/status` — same body as §6.2 status; `to` ∈ `EN_ROUTE`, `IN_CUSTODY`, `DELIVERED`.
 - `GET /driver/mortuary/legs/:legId/custody-events` → events on this leg only.
+- `GET /driver/mortuary/legs/:legId/custody-events` additionally returns `last_seq`, the whole-case sequence number for safe appends. It does not return other legs’ events or case-wide private details.
 - `POST /driver/mortuary/legs/:legId/custody-events` — same body as §7.2, `leg_id` implied; kinds `IDENTITY_CHECK`, `TRANSFER`, `CHECKPOINT`, `INCIDENT`. Leg must be `ASSIGNED`, `EN_ROUTE` or `IN_CUSTODY`.
 
 ---
@@ -643,3 +644,5 @@ Server logs never include request bodies for mortuary routes. Error messages nev
 |---|---|---|
 | 1.0.0 | 2026-10-22 | Initial frozen contract (committed before implementation). |
 | 1.1.0 | 2026-10-22 | Additive / clarifying only, found while implementing. No field, status or rule was removed or renamed. (1) §7.3: `effective`, `current_custodian`, `open_incidents` always cover the whole case; `open_incidents[]` shape defined; `chain_valid` only when `after_seq=0`. (2) §8.3: document replay returns `upload: null` once the document is past `UPLOAD_PENDING`. (3) §9.1: `Quote.decline_reason` added. (4) §4.7: `actor.role` added to history. (5) §10.3: adding a requirement after approval revokes approval, like changing one. |
+
+| 1.2.0 | 2026-10-22 | Driver custody reads add `last_seq` for safe case-wide sequencing without exposing other legs. |

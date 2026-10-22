@@ -140,6 +140,7 @@ export interface CustodyEvent {
 }
 
 export interface CustodyPage {
+  last_seq?: number;
   events: CustodyEvent[];
   effective: { seq: number; kind: string; occurred_at: string; payload: Record<string, unknown>; corrected_by?: number[] }[];
   current_custodian: Party | null;
@@ -217,6 +218,7 @@ export interface Quote {
 }
 
 export interface Invoice {
+  quote_id?: string;
   id: string;
   invoice_number: string;
   status: "ISSUED" | "VOID";

@@ -322,6 +322,9 @@ test("a domestic case runs end to end with an attributable, hash-chained custody
     assert.equal((await w.call(M.driverA, "POST", `/driver/mortuary/legs/${leg.id}/custody-events`, custody("CORRECTION", { corrects_seq: 1, reason: "x", changes: { occurred_at: NOW } }, 0))).status, 403, "drivers cannot correct");
     await w.call(M.driverA, "POST", `/driver/mortuary/legs/${leg.id}/custody-events`, custody("IDENTITY_CHECK", { method: "TAG", outcome: "VERIFIED", observed_tag: TAG }, 0));
     const pickup = { releasing_party: { kind: "RELEASING_FACILITY", name: "Casey Fixture", organization: "Example General Hospital" }, receiving_party: { kind: "TRANSPORT_STAFF", name: "Riley Drivr", driver_id: D.d1 }, location: place("Example General Hospital"), releasing_acknowledgment: { method: "PAPER_FORM", reference: "REL-FORM-0001", acknowledged_at: "2026-10-22T11:54:00.000Z" }, receiving_acknowledgment: ack("Riley Driver") };
+    const driverPage = await w.call(M.driverA, "GET", `/driver/mortuary/legs/${leg.id}/custody-events`);
+    assert.equal(driverPage.body.last_seq, 1, "driver can safely append at the current case sequence");
+    assert.equal(driverPage.body.current_custodian, undefined, "driver receives no case-wide custodian detail");
     const took = await w.call(M.driverA, "POST", `/driver/mortuary/legs/${leg.id}/custody-events`, custody("TRANSFER", pickup, 1));
     assert.equal(took.status, 201, took.raw); assert.equal(took.body.current_custodian.kind, "TRANSPORT_STAFF");
     assert.equal(took.body.event.recorded_by.role, "DRIVER");
