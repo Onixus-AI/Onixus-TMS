@@ -31,11 +31,13 @@ export type Ctx = {
   ai: () => LlmProvider;
   /** Read a delivery order (file and/or text) into JSON with the AI model. */
   readOrder: (request: Extraction) => Promise<unknown>;
+  /** The private bucket for mortuary case documents (never the loads bucket, never Drive). */
+  mortuaryFiles: () => FileStore;
 };
 
-/** An error with an HTTP status and, optionally, the list of things to fix. */
+/** An error with an HTTP status and, optionally, the list of things to fix, a machine-readable code and the current state. */
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string, readonly problems?: string[]) {
+  constructor(readonly status: number, message: string, readonly problems?: string[], readonly code?: string, readonly current?: Record<string, unknown>) {
     super(message);
   }
 }

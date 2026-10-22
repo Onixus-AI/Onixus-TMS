@@ -16,6 +16,7 @@ import { overviewRoutes } from "./routes/overview.js";
 import { commsRoutes } from "./routes/comms.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import { connected, connectionRoutes, oauthCallback } from "./routes/connections.js";
+import { mortuaryDriverRoutes, mortuaryRoutes } from "./routes/mortuary.js";
 
 // One API for every integration. Each route resolves the provider chosen in
 // the environment at call time, so switching Gmail → Outlook or Claude →
@@ -48,6 +49,7 @@ export function createApp(env: Env, deps: Deps = {}) {
     verifyUser: deps.verifyUser ?? (async (token) => (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY ? supabaseUser(env, token) : null)),
     inviteUser: deps.inviteUser ?? ((email, redirectTo) => supabaseInvite(env, email, redirectTo)),
     files: deps.files ?? (() => supabaseFiles(env)),
+    mortuaryFiles: deps.mortuaryFiles ?? (() => supabaseFiles(env, "mortuary-documents")),
     mailer: deps.mailer ?? (() => emailProvider(env)),
     ai: deps.ai ?? (() => llmProvider(env)),
     readOrder: deps.readOrder ?? (async (request) => {
@@ -94,7 +96,8 @@ export function createApp(env: Env, deps: Deps = {}) {
   // Anyone signed in: who am I, start a company; owners manage the team.
   app.use(identityRoutes(ctx));
 
-  // The driver app: only the caller's own trips.
+  // The driver app: only the caller's own trips. Mortuary legs carry their own guard.
+  app.use("/driver/mortuary", mortuaryDriverRoutes(ctx));
   app.use("/driver", drivers, driverRoutes(ctx));
 
   // Platform only: Onixus's own mailbox, CRM and AI credit, and cross-company jobs.
@@ -132,6 +135,9 @@ export function createApp(env: Env, deps: Deps = {}) {
   });
 
   // The office: owners and dispatchers (or the platform acting inside a company).
+  // Mortuary cases: owners and dispatchers, with per-case restricted access (own guard, see routes/mortuary.ts).
+  app.use("/mortuary", mortuaryRoutes(ctx));
+
   app.use(roles("OWNER", "DISPATCHER"));
   app.use(operationsRoutes(ctx),suiteRoutes(ctx));
   app.use(loadRoutes(ctx), legRoutes(ctx), orderRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx), overviewRoutes(ctx), commsRoutes(ctx), mcpRoutes(ctx), connectionRoutes(ctx));
@@ -150,9 +156,14 @@ export function createApp(env: Env, deps: Deps = {}) {
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));
   // Express 5 routes rejected promises from async handlers here.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof z.ZodError) return res.status(400).json({ error: "Invalid request", issues: err.issues });
+    if (err instanceof z.ZodError) return res.status(400).json({ error: "Invalid request", code: "VALIDATION_FAILED", issues: err.issues });
     if (err instanceof HttpError || err instanceof StoreError) {
-      return res.status(err.status).json({ error: err.message, ...(err instanceof HttpError && err.problems ? { problems: err.problems } : {}) });
+      return res.status(err.status).json({
+        error: err.message,
+        ...(err instanceof HttpError && err.code ? { code: err.code } : {}),
+        ...(err instanceof HttpError && err.problems ? { problems: err.problems } : {}),
+        ...(err instanceof HttpError && err.current ? { current: err.current } : {}),
+      });
     }
     const e = err as { status?: number; message?: string; missing?: string[] };
     const status = typeof e.status === "number" && e.status >= 400 && e.status < 600 ? e.status : 500;
