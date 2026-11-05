@@ -3,7 +3,7 @@ export function OnixusLogo({ className = "logo" }: { className?: string }) {
   return <img className={className} src="/onixus-mark.png" alt="" width={30} height={30} decoding="async" />;
 }
 
-/** The full Onixus logo with its wordmark, for the sign-in screen (white wordmark: dark backgrounds only). */
+/** The Onixus TMS logo (mark, ONIXUS wordmark and TMS), for the sign-in screen. White wordmark: dark backgrounds only. */
 export function OnixusWordmark() {
-  return <img className="auth-logo" src="/onixus-logo.png" alt="Onixus" width={160} height={123} decoding="async" />;
+  return <h1 className="auth-logo-title"><img className="auth-logo" src="/onixus-tms-logo.png" alt="Onixus TMS" width={220} height={130} decoding="async" /></h1>;
 }

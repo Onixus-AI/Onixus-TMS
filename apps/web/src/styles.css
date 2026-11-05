@@ -79,7 +79,8 @@ a { color: var(--accent); }
 .brand strong { font-size: 17px; letter-spacing: -0.02em; }
 .brand .org { color: var(--muted); font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logo { width: 30px; height: 30px; object-fit: contain; }
-.auth-logo { display: block; width: 160px; height: auto; margin: 0 auto 12px; }
+.auth-logo-title { margin: 0 0 4px; line-height: 0; }
+.auth-logo { display: block; width: 220px; height: auto; margin: 0 auto; }
 .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button {

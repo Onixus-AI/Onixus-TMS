@@ -41,7 +41,6 @@ export function SignIn() {
   return (
     <div className="auth">
       <OnixusWordmark />
-      <h1>Onixus TMS</h1>
       <p className="muted">Transport operations, connected to your business workspace.</p>
       <form className="card stack" onSubmit={submit}>
         <h3>{mode === "in" ? "Sign in" : mode === "up" ? "Create your account" : "Reset your password"}</h3>
