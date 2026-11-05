@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { EQUIPMENT_LABELS, LEG_NEXT, legActionLabel, type LegStatus } from "@onixus/core";
 import { api } from "./api";
+import { httpMortuaryClient } from "./mortuary/client";
+import { DriverMortuary } from "./mortuary/office";
+import { supabase } from "./supabase";
 import { Documents, human, Problem, ref, useAction, useGet, type Load, type Row } from "./trucking";
 import { legLabel } from "./drayage";
 
@@ -101,6 +104,23 @@ function TripCard({ trip, onChange }: { trip: Trip; onChange: () => void }) {
 }
 
 export function DriverApp() {
+  const [work, setWork] = useState<"freight" | "mortuary">("freight");
+  const mortuary = useMemo(() => httpMortuaryClient(async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? "";
+  }), []);
+  return (
+    <div className="stack">
+      <div className="driver-area" role="group" aria-label="Driver work">
+        <button type="button" className={work === "freight" ? "active" : ""} aria-pressed={work === "freight"} onClick={() => setWork("freight")}>Freight trips</button>
+        <button type="button" className={work === "mortuary" ? "active" : ""} aria-pressed={work === "mortuary"} onClick={() => setWork("mortuary")}>Mortuary legs</button>
+      </div>
+      {work === "mortuary" ? <DriverMortuary client={mortuary} /> : <FreightTrips />}
+    </div>
+  );
+}
+
+function FreightTrips() {
   const { data, error, reload } = useGet<{ trips: Trip[]; truck: Row | null; trailer: Row | null }>("/driver/trips");
   const open = data?.trips.filter((t) => t.status !== "COMPLETED") ?? [];
   const done = data?.trips.filter((t) => t.status === "COMPLETED") ?? [];

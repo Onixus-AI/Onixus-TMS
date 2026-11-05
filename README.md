@@ -9,6 +9,8 @@ dispatcher web app.
 
 The Business OS workspace now supports additive transport service profiles, reviewed service quotes, Stripe payment receipts/refund feedback, Google Calendar bookings, and a same-business Veltra Mail/CRM connector. Drayage remains the existing freight and dispatch workflow. Other transport modules start with service intake; specialized workflows are not claimed complete. See [the release and activation checklist](docs/veltra-business-os-release-2026-10-18.md) for exact scope and limitations.
 
+Mortuary operations are a separate area in the same office sidebar, and a separate switch in the driver app. The client follows contract 1.1.0. Scope and gaps are in [docs/mortuary-ui-status.md](docs/mortuary-ui-status.md). Web tests: `npm test --workspace @onixus/web`.
+
 ## Who uses it
 
 Every business is an organization, from an owner-operator with one cargo van

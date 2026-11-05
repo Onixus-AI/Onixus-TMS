@@ -11,7 +11,8 @@ export type Row = Record<string, unknown> & { id: string };
 type Scalar = string | number | boolean | null;
 /** Column filters: a value means "equals", null means "is null", an array means "is one of". */
 export type Where = Record<string, Scalar | readonly Scalar[]>;
-export type ListOptions = { limit?: number; order?: string; ascending?: boolean };
+/** `after`: only rows strictly beyond this value of the `order` column, in the sort direction (cursor pagination). */
+export type ListOptions = { limit?: number; order?: string; ascending?: boolean; after?: string };
 
 export interface Store {
   list<T extends Row = Row>(table: string, where?: Where, opts?: ListOptions): Promise<T[]>;
@@ -50,6 +51,7 @@ export function supabaseStore(client: SupabaseClient): Store {
   return {
     async list<T extends Row>(table: string, where?: Where, opts: ListOptions = {}) {
       let q = applyWhere(client.from(table).select("*"), where);
+      if (opts.order && opts.after !== undefined) q = (opts.ascending ?? false) ? q.gt(opts.order, opts.after) : q.lt(opts.order, opts.after);
       if (opts.order) q = q.order(opts.order, { ascending: opts.ascending ?? false });
       const { data, error } = await q.limit(opts.limit ?? 200);
       if (error) fail(error);
@@ -122,6 +124,11 @@ export function memoryStore(seed: Record<string, Row[]> = {}): Store & { tables:
     tables,
     async list<T extends Row>(table: string, where?: Where, opts: ListOptions = {}) {
       let out = rows(table).filter((r) => matches(r, where));
+      if (opts.order && opts.after !== undefined) {
+        const col = opts.order, after = opts.after, asc = opts.ascending ?? false;
+        const beyond = (v: unknown) => (typeof v === "number" ? (asc ? v > Number(after) : v < Number(after)) : asc ? String(v ?? "") > after : String(v ?? "") < after);
+        out = out.filter((r) => beyond(r[col]));
+      }
       if (opts.order) {
         const col = opts.order, dir = opts.ascending ?? false ? 1 : -1;
         out = [...out].sort((a, b) => (String(a[col] ?? "") < String(b[col] ?? "") ? -dir : String(a[col] ?? "") > String(b[col] ?? "") ? dir : 0));
