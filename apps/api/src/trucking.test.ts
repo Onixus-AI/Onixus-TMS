@@ -206,3 +206,28 @@ test("quotes use the customer's own tariff first; GPS positions match trucks", a
     assert.equal(v[0].truck.truck_number, "T-1");
   }, { tracking });
 });
+
+
+test("a lane with no saved tariff is priced per mile from the company's bands; unknown places and missing bands say so", async () => {
+  await withApi(async (call) => {
+    const req = { origin: "Norfolk, VA 23510", destination: "11890 North Lakeridge Parkway ASHLAND, VA 23005", equipment_type: "CONTAINER", container_size: "40" };
+    assert.equal((await call("POST", "/quotes", req)).status, 404, "no tariff and no bands");
+    assert.equal((await call("PUT", "/mileage-rates", { bands: [{ equipment_type: "CONTAINER", min_miles: 50, max_miles: 10, per_mile: 4, minimum: 450 }] })).status, 400);
+    const put = await call("PUT", "/mileage-rates", { bands: [{ equipment_type: "CONTAINER", min_miles: 0, max_miles: 300, per_mile: 4, minimum: 450, fuel_surcharge: 25, round_trip: true }] });
+    assert.equal(put.status, 200);
+    assert.equal((await call("GET", "/mileage-rates")).body.bands.length, 1);
+    const q = await call("POST", "/quotes", req);
+    assert.equal(q.status, 200);
+    assert.equal(q.body.method, "mileage");
+    assert.ok(q.body.miles_estimated > 80 && q.body.miles_estimated < 140, `Norfolk to Ashland estimated at ${q.body.miles_estimated} miles`);
+    assert.equal(q.body.billed_miles, q.body.miles_estimated * 2, "drayage band is round trip");
+    assert.equal(q.body.base_rate, Math.max(450, q.body.billed_miles * 4));
+    assert.equal(q.body.total, q.body.base_rate * 1.25);
+    assert.match(q.body.destination, /Ashland, VA 23005/);
+    assert.equal((await call("POST", "/quotes", { origin: "Norfolk, VA", destination: "Richmond, VA", equipment_type: "CONTAINER" })).body.method, "mileage", "city and state without a ZIP also places");
+    assert.equal((await call("POST", "/quotes", { ...req, destination: "the warehouse" })).status, 422);
+    assert.equal((await call("POST", "/quotes", { ...req, destination: "Los Angeles, CA 90021" })).status, 404, "past the last band");
+    assert.equal((await call("POST", "/tariffs", { origin: "Norfolk, VA 23510", destination: req.destination, equipment_type: "CONTAINER", base_rate: 600, fuel_surcharge: 20, effective_from: "2026-10-01" })).status, 201);
+    assert.equal((await call("POST", "/quotes", req)).body.method, "tariff", "a saved lane still wins over per-mile pricing");
+  });
+});

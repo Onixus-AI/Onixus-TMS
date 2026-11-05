@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
-import { CONTAINER_SIZES, EQUIPMENT_LABELS, EQUIPMENT_TYPES, BILLABLE, type EquipmentType } from "@onixus/core";
+import { CONTAINER_SIZES, EQUIPMENT_LABELS, EQUIPMENT_TYPES, BILLABLE, mileagePrice, type EquipmentType, type MileageBand } from "@onixus/core";
 import { defined, HttpError, isoDate, money, mustGet, text, today, uuid, type Ctx } from "../http.js";
 import { charges, moveLoad, type Load } from "./loads.js";
-import { extrasFor } from "./overview.js";
+import { extrasFor, orgIdOf } from "./overview.js";
+import { estimatedMiles, placeOf } from "../places.js";
 import { connected } from "./connections.js";
 
 export const CUSTOMER_TYPES = ["SHIPPER", "MANUFACTURER", "BROKER", "FREIGHT_FORWARDER", "STEAMSHIP_LINE", "DEPOT", "WAREHOUSE", "PORT_TERMINAL", "CHASSIS_POOL"] as const;
@@ -49,6 +50,18 @@ const tariff = z.object({
   effective_to: isoDate.nullish(),
 });
 const quote = z.object({ customer_id: uuid.optional(), origin: text(), destination: text(), equipment_type: z.enum(EQUIPMENT_TYPES).default("CONTAINER"), container_size: z.enum(CONTAINER_SIZES).optional() });
+const band = z.object({
+  equipment_type: z.enum(EQUIPMENT_TYPES),
+  container_size: z.enum(CONTAINER_SIZES).nullish(),
+  min_miles: z.number().min(0).max(5000),
+  max_miles: z.number().min(0).max(5000).nullish(),
+  per_mile: z.number().positive().max(100),
+  minimum: z.number().min(0).max(100_000),
+  /** Percent of the base. */
+  fuel_surcharge: z.number().min(0).max(100).default(0),
+  round_trip: z.boolean().default(false),
+}).refine((b) => b.max_miles == null || b.max_miles >= b.min_miles, "max_miles must be at least min_miles");
+const mileageRates = z.object({ bands: z.array(band).max(100) });
 const line = z.object({ code: text(30), description: text(), amount: z.number().min(-1_000_000).max(1_000_000) });
 /** Without `accessorials`, the invoice carries the extras the load has earned (chassis, waiting, …); send a list to replace them. */
 const invoiceRequest = z.object({ accessorials: z.array(line).max(50).optional(), include_container_charges: z.boolean().default(true) });
@@ -138,7 +151,20 @@ export function accountRoutes(ctx: Ctx) {
     res.status(201).json({ tariff: await ctx.store().insert("rate_tariffs", defined(tariff.parse(req.body))) });
   });
 
-  /** Price a lane from the tariffs: the customer's own rate wins over the general one. */
+  /** Per-mile bands for lanes without a saved tariff. Owners only, like the rate card. */
+  r.get("/mileage-rates", async (_req, res) => {
+    const org = await ctx.db().get<{ id: string; mileage_rates?: MileageBand[] | null }>("organizations", orgIdOf(ctx));
+    res.json({ bands: org?.mileage_rates ?? [] });
+  });
+  r.put("/mileage-rates", async (req, res) => {
+    const c = ctx.caller();
+    if (c?.kind === "user" && c.member?.role !== "OWNER") throw new HttpError(403, "Only an owner can change prices");
+    const { bands } = mileageRates.parse(req.body);
+    await ctx.db().update("organizations", orgIdOf(ctx), { mileage_rates: bands });
+    res.json({ bands });
+  });
+
+  /** Price a lane: a saved tariff first (the customer's own rate wins over the general one), then per-mile bands. */
   r.post("/quotes", async (req, res) => {
     const q = quote.parse(req.body);
     const day = today(ctx);
@@ -149,9 +175,24 @@ export function accountRoutes(ctx: Ctx) {
         && (!t.customer_id || t.customer_id === q.customer_id),
     );
     const best = found.find((t) => t.customer_id && t.customer_id === q.customer_id) ?? found.find((t) => !t.customer_id);
-    if (!best) throw new HttpError(404, `No ${EQUIPMENT_LABELS[q.equipment_type as EquipmentType]} rate from ${q.origin} to ${q.destination}`);
-    const fuel = cents((best.base_rate * (best.fuel_surcharge ?? 0)) / 100);
-    res.json({ tariff_id: best.id, base_rate: best.base_rate, fuel_surcharge: fuel, total: cents(best.base_rate + fuel), optional_accessorials: best.accessorials ?? [] });
+    const label = EQUIPMENT_LABELS[q.equipment_type as EquipmentType];
+    if (best) {
+      const fuel = cents((best.base_rate * (best.fuel_surcharge ?? 0)) / 100);
+      res.json({ method: "tariff", tariff_id: best.id, base_rate: best.base_rate, fuel_surcharge: fuel, total: cents(best.base_rate + fuel), optional_accessorials: best.accessorials ?? [] });
+      return;
+    }
+    // No saved lane: price it per mile from the company's bands, when it has set them.
+    const org = await ctx.db().get<{ id: string; mileage_rates?: MileageBand[] | null }>("organizations", orgIdOf(ctx));
+    const bands = org?.mileage_rates ?? [];
+    if (!bands.length) throw new HttpError(404, `No ${label} rate from ${q.origin} to ${q.destination}. Save this lane, or set per-mile rates.`);
+    const from = placeOf(q.origin), to = placeOf(q.destination);
+    if (!from || !to) throw new HttpError(422, `Could not place ${!from ? q.origin : q.destination}. Use a city and state, or a ZIP code.`);
+    const miles = estimatedMiles(from, to);
+    const priced = mileagePrice(bands, { equipment_type: q.equipment_type as EquipmentType, container_size: q.container_size, miles });
+    if (!priced) throw new HttpError(404, `No ${label} per-mile rate covers ${miles} miles.`);
+    res.json({ method: "mileage", miles_estimated: priced.miles, billed_miles: priced.billed_miles, round_trip: priced.band.round_trip,
+      origin: `${from.city}, ${from.state} ${from.zip}`, destination: `${to.city}, ${to.state} ${to.zip}`,
+      base_rate: priced.base_rate, fuel_surcharge: priced.fuel_surcharge, total: priced.total, optional_accessorials: [] });
   });
 
   // ── Invoices ──────────────────────────────────────────────────────────────
