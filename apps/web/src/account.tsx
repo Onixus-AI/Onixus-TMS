@@ -1,3 +1,4 @@
+import { OnixusWordmark } from "./logo";
 import { useState, type FormEvent } from "react";
 import { api } from "./api";
 import { supabase } from "./supabase";
@@ -39,6 +40,7 @@ export function SignIn() {
   };
   return (
     <div className="auth">
+      <OnixusWordmark />
       <h1>Onixus TMS</h1>
       <p className="muted">Transport operations, connected to your business workspace.</p>
       <form className="card stack" onSubmit={submit}>
