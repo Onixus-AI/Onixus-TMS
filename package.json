@@ -1,7 +1,10 @@
 {
   "name": "onixus-logistics-os",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -10,7 +13,8 @@
   },
   "devDependencies": {
     "turbo": "^2.5.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "esbuild": "0.28.2"
   },
   "packageManager": "npm@10.9.4"
 }
