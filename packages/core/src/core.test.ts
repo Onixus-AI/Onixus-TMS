@@ -136,3 +136,21 @@ test("drayage extras: chassis days, prepull, yard storage, waiting, overweight, 
   assert.deepEqual(out.map((l) => l.code), ["OVERWEIGHT"]);
   assert.equal(suggestedCharges({ equipment_type: "CONTAINER", outgated_at: "2026-10-10T08:00:00Z" }, [], card, now)[0].quantity, 3);
 });
+
+test("per-mile pricing: size-specific band wins, minimum applies, round trip doubles the miles", async () => {
+  const { mileagePrice, greatCircleMiles } = await import("./mileage.js");
+  const bands = [
+    { equipment_type: "CONTAINER" as const, min_miles: 0, max_miles: 300, per_mile: 4, minimum: 450, fuel_surcharge: 25, round_trip: true },
+    { equipment_type: "CONTAINER" as const, container_size: "20" as const, min_miles: 0, max_miles: 300, per_mile: 3.5, minimum: 400, fuel_surcharge: 25, round_trip: true },
+    { equipment_type: "DRY_VAN" as const, min_miles: 0, per_mile: 2.75, minimum: 300, fuel_surcharge: 0, round_trip: false },
+  ];
+  const forty = mileagePrice(bands, { equipment_type: "CONTAINER", container_size: "40", miles: 100 })!;
+  assert.deepEqual([forty.billed_miles, forty.base_rate, forty.fuel_surcharge, forty.total], [200, 800, 200, 1000]);
+  const twenty = mileagePrice(bands, { equipment_type: "CONTAINER", container_size: "20", miles: 100 })!;
+  assert.equal(twenty.base_rate, 700, "the 20' band is used for a 20' container");
+  assert.equal(mileagePrice(bands, { equipment_type: "CONTAINER", container_size: "40", miles: 10 })!.base_rate, 450, "short moves pay the minimum");
+  assert.equal(mileagePrice(bands, { equipment_type: "CONTAINER", miles: 400 }), null, "no band past 300 miles");
+  assert.equal(mileagePrice(bands, { equipment_type: "DRY_VAN", miles: 1000 })!.billed_miles, 1000, "one-way freight is not doubled");
+  assert.throws(() => mileagePrice(bands, { equipment_type: "DRY_VAN", miles: -1 }), /positive/);
+  assert.ok(Math.abs(greatCircleMiles({ lat: 36.85, lng: -76.29 }, { lat: 35.23, lng: -80.84 }) - 285) < 15, "Norfolk to Charlotte is about 285 miles in a straight line");
+});

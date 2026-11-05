@@ -12,7 +12,7 @@ import type { Load } from "./loads.js";
 const DAY = 86_400_000;
 const dateOf = (iso: string) => iso.slice(0, 10);
 
-function orgIdOf(ctx: Ctx): string {
+export function orgIdOf(ctx: Ctx): string {
   const c = ctx.caller();
   const id = c?.kind === "system" ? c.orgId : c?.member?.org_id;
   if (!id) throw new HttpError(403, "Join or create a company first");
