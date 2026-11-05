@@ -1,5 +1,5 @@
 -- Minimal stand-ins for the Supabase objects and earlier tables that
--- 015_mortuary_cases.sql references, so the migration can be applied and
+-- 016_mortuary_cases.sql references, so the migration can be applied and
 -- exercised on a plain, disposable PostgreSQL 16 database (no PostGIS needed).
 -- NEVER run this against a real Supabase project.
 do $$ begin

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Exercise supabase/migrations/015_mortuary_cases.sql on a DISPOSABLE PostgreSQL 16
+# Exercise supabase/migrations/016_mortuary_cases.sql on a DISPOSABLE PostgreSQL 16
 # database: apply a stub of the objects it depends on, the migration itself, the
-# assertions in supabase/tests/mortuary_015_test.sql, and two real concurrency
+# assertions in supabase/tests/mortuary_016_test.sql, and two real concurrency
 # races (overlapping assignment, custody sequence) across separate sessions.
 #
 #   MORTUARY_TEST_DATABASE_URL=postgres://postgres@localhost:5432/mortuary_scratch ./scripts/test-mortuary-sql.sh
@@ -18,8 +18,8 @@ if [ "$(psql_q -tAc "select count(*) from pg_tables where schemaname='public'")"
 fi
 
 psql_q -f "$root/supabase/tests/mortuary_stub_base.sql"
-psql_q -f "$root/supabase/migrations/015_mortuary_cases.sql"
-psql_q -f "$root/supabase/tests/mortuary_015_test.sql"
+psql_q -f "$root/supabase/migrations/016_mortuary_cases.sql"
+psql_q -f "$root/supabase/tests/mortuary_016_test.sql"
 
 # ── Race 1: two sessions assign the same driver to overlapping legs ──────────
 psql_q <<'SQL'

@@ -8,7 +8,7 @@ const { PGlite } = await import(process.env.MORTUARY_PGLITE_MODULE || '@electric
 const root = fileURLToPath(new URL('..', import.meta.url));
 const database = new PGlite();
 try {
-  for (const path of ['supabase/tests/mortuary_stub_base.sql', 'supabase/migrations/015_mortuary_cases.sql', 'supabase/tests/mortuary_015_test.sql']) {
+  for (const path of ['supabase/tests/mortuary_stub_base.sql', 'supabase/migrations/016_mortuary_cases.sql', 'supabase/tests/mortuary_016_test.sql']) {
     const sql = (await readFile(resolve(root, path), 'utf8')).replace(/^\\.*$/gm, '');
     await database.exec(sql);
     console.log(`${path}: PASS`);

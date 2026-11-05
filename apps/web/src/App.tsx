@@ -15,11 +15,13 @@ import { OnixusLogo } from "./logo";
 import { httpMortuaryClient } from "./mortuary/client";
 import { DriverMortuary, MortuaryOffice, type MortuaryTab } from "./mortuary/office";
 import type { QueueId } from "./mortuary/types";
+import { SetupFlow } from "./setup";
 
 export type Me = {
   user: { id: string; email: string };
   membership: { role: "OWNER" | "DISPATCHER" | "DRIVER"; driver_id: string | null } | null;
   organization: { name: string; kind: string } | null;
+  setup: { modules: string[]; equipment: string[]; service_area: string; timezone: string; complete: boolean } | null;
 };
 
 // Back from a provider's sign-in (Gmail, Outlook, QuickBooks): read once at load, then tidy the address bar.
@@ -53,7 +55,7 @@ function Account({ me }: { me: Me }) {
 function Shell({ me, children, tabs, tab, setTab, area, setArea }: { me: Me; children: React.ReactNode; tabs: [Tab, string][]; tab?: Tab; setTab?: (t: Tab) => void; area?: "freight" | "mortuary"; setArea?: (area: "freight" | "mortuary") => void }) {
   const [collapsed,setCollapsed]=useState(false);
   return (
-    <div className={`shell tms-shell ${collapsed?"sidebar-collapsed":""}`}>
+    <div className={`shell tms-shell ${collapsed||!tabs.length?"sidebar-collapsed":""}`}>
       <header className="topbar">
         <div className="brand">
           <OnixusLogo />
@@ -62,7 +64,7 @@ function Shell({ me, children, tabs, tab, setTab, area, setArea }: { me: Me; chi
             <span className="org">{me.organization?.name ?? "Transport OS"}</span>
           </div>
         </div>
-        <button aria-label="Toggle navigation" aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}>☰</button>
+        {tabs.length>0?<button aria-label="Toggle navigation" aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}>☰</button>:<span style={{marginLeft:"auto"}}/>}
         <Account me={me} />
       </header>
       {!collapsed&&tabs.length>0&&<aside className="tms-sidebar">        {setArea && (
@@ -84,13 +86,18 @@ function Shell({ me, children, tabs, tab, setTab, area, setArea }: { me: Me; chi
   );
 }
 
-function Office({ me }: { me: Me }) {
+function Office({ me, reload }: { me: Me; reload: () => void }) {
   const owner = me.membership?.role === "OWNER";
+  const [editingSetup, setEditingSetup] = useState(false);
+  const modules = me.setup?.modules ?? [];
   const drives = Boolean(me.membership?.driver_id);
   // Owner-operators mostly drive: open on their trips.
   const returned = connectionReturn;
-  const [area, setArea] = useState<"freight" | "mortuary">("freight");
-  const [tab, setTab] = useState<Tab>(returned ? "connections" : me.organization?.kind === "OWNER_OPERATOR" && drives ? "mytrips" : "operations");
+  // Mortuary has its own area; the switch shows only for companies that run freight services too.
+  const runsMortuary = modules.includes("MORTUARY"), runsFreight = modules.some((m) => m !== "MORTUARY");
+  const both = runsMortuary && runsFreight;
+  const [area, setArea] = useState<"freight" | "mortuary">(runsMortuary && !runsFreight ? "mortuary" : "freight");
+  const [tab, setTab] = useState<Tab>(returned ? "connections" : area === "mortuary" ? "m-ops" : me.organization?.kind === "OWNER_OPERATOR" && drives ? "mytrips" : "operations");
   const [intent, setIntent] = useState<Intent>({});
   const go = useCallback((t: Tab, i: Intent = {}) => {
     setIntent(i);
@@ -105,7 +112,10 @@ function Office({ me }: { me: Me }) {
   const freightTabs: [Tab, string][] = [
     ["operations", "Operations"], ["overview", "Overview"],
     ...(drives ? ([["mytrips", "My trips"]] as [Tab, string][]) : []),
-    ["loads", "Loads"], ["dispatch", "Dispatch"], ["containers", "Containers"], ["billing", "Billing"], ["fleet", "Fleet"], ["customers", "Customers"],
+    ["loads", "Loads"], ["dispatch", "Dispatch"],
+    // Containers are drayage work; OTR and other services don't see them.
+    ...(modules.includes("DRAYAGE") ? ([["containers", "Containers"]] as [Tab, string][]) : []),
+    ["billing", "Billing"], ["fleet", "Fleet"], ["customers", "Customers"],
     ["connections", "Connections"],
     ...(owner ? ([["team", "Team"], ["platform", "Platform"]] as [Tab, string][]) : []),
   ];
@@ -127,9 +137,12 @@ function Office({ me }: { me: Me }) {
   }), []);
   const mortuaryTab: MortuaryTab = tab === "m-cases" ? "cases" : tab === "m-dispatch" ? "dispatch" : tab === "m-international" ? "international" : "operations";
   const queue = (intent.queue === "active" || intent.queue === "unassigned_pickups" || intent.queue === "upcoming_transfers" || intent.queue === "missing_documents" || intent.queue === "past_window" || intent.queue === "needs_approval") ? intent.queue as QueueId : null;
+  // Setup is a page of its own, without the sidebar, until the owner finishes it.
+  if (owner && me.setup && (!me.setup.complete || editingSetup))
+    return <Shell me={me} tabs={[]}><SetupFlow initial={me.setup} onDone={() => { setEditingSetup(false); reload(); }} onCancel={me.setup.complete ? () => setEditingSetup(false) : undefined} /></Shell>;
   return (
     <NavContext.Provider value={{ go, intent, clearIntent: () => setIntent({}) }}>
-      <Shell me={me} tabs={tabs} tab={tab} setTab={(t) => go(t)} area={area} setArea={chooseArea}>
+      <Shell me={me} tabs={tabs} tab={tab} setTab={(t) => go(t)} area={area} setArea={both ? chooseArea : undefined}>
         {area === "mortuary" && (
           <MortuaryOffice
             role={me.membership?.role ?? "DISPATCHER"}
@@ -143,7 +156,7 @@ function Office({ me }: { me: Me }) {
             onQueue={(next) => go("m-cases", next ? { queue: next } : {})}
           />
         )}
-        {area === "freight" && tab === "operations" && <Operations owner={owner} />}
+        {area === "freight" && tab === "operations" && <Operations owner={owner} onEditSetup={() => setEditingSetup(true)} />}
         {area === "freight" && tab === "overview" && <Overview me={me} />}
         {area === "freight" && tab === "mytrips" && <DriverApp />}
         {area === "freight" && tab === "loads" && <Loads />}
@@ -192,5 +205,5 @@ export default function App() {
   if (!me) return <p className="center muted">Loading your company…</p>;
   if (!me.membership) return <Onboarding email={me.user.email} onDone={loadMe} />;
   if (me.membership.role === "DRIVER") return <Shell me={me} tabs={[]}><DriverApp /></Shell>;
-  return <Office me={me} />;
+  return <Office me={me} reload={loadMe} />;
 }

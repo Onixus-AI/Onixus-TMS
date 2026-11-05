@@ -1,4 +1,4 @@
--- Assertions for 015_mortuary_cases.sql on a disposable PostgreSQL 16 database
+-- Assertions for 016_mortuary_cases.sql on a disposable PostgreSQL 16 database
 -- (after mortuary_stub_base.sql and the migration). Every check raises on
 -- failure; the run ends with "mortuary 015 SQL checks passed".
 -- Run with scripts/test-mortuary-sql.sh. NEVER run against a real project.

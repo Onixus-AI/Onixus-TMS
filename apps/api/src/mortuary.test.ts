@@ -1,8 +1,8 @@
 // TMS–Mortuary API tests. All data is fictional. The in-memory store is
-// wrapped with the same unique constraints as 015_mortuary_cases.sql so that
+// wrapped with the same unique constraints as 016_mortuary_cases.sql so that
 // races resolve the way they do in Postgres. Database-only guarantees (the
 // locked overlap check, append-only triggers, hash linkage) are exercised
-// against real PostgreSQL in supabase/tests/mortuary_015_test.sql.
+// against real PostgreSQL in supabase/tests/mortuary_016_test.sql.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";

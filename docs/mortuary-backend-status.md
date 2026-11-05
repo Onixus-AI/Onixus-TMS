@@ -30,7 +30,7 @@ Inspected `Onixus-AI/Onixus-TMS` at `1869d10` (2026-10-18) and `Onixus-AI/radian
 | File | Purpose |
 |---|---|
 | `docs/mortuary-api-contract.md` | Frozen contract for Cursor (endpoints, auth, tenancy, fields, statuses, validation, pagination, errors, concurrency, examples) |
-| `supabase/migrations/015_mortuary_cases.sql` | 14 additive tables, 3 trigger functions, private `mortuary-documents` bucket, RLS + service-role-only grants |
+| `supabase/migrations/016_mortuary_cases.sql` | 14 additive tables, 3 trigger functions, private `mortuary-documents` bucket, RLS + service-role-only grants |
 | `packages/core/src/mortuary-cases.ts` | Pure rules: case/leg state machines, custody corrections and custodian, transfer and identity rules, checklist, release readiness, pricing, integration allow-list |
 | `apps/api/src/routes/mortuary.ts` | 46 endpoints: 42 under `/mortuary`, 4 under `/driver/mortuary` |
 | `apps/api/src/app.ts`, `http.ts` | Mount routes with their own guards; `mortuaryFiles` on the context; errors gain optional `code` / `current` (additive) |
@@ -105,7 +105,7 @@ The script refuses Supabase hosts and non-empty databases.
 ### Before any deployment (not done; needs owner approval)
 
 1. Review and merge the PR. Do not merge until Cursor's screens are ready to follow contract v1.1.0.
-2. Apply `015_mortuary_cases.sql` to a **Supabase branch or staging project first** (`supabase link --project-ref <staging-ref>` then `supabase db push`). Confirm the `mortuary-documents` bucket exists and is private, and that RLS is on for all 14 `mortuary_*` tables (`get_advisors`).
+2. Apply `016_mortuary_cases.sql` to a **Supabase branch or staging project first** (`supabase link --project-ref <staging-ref>` then `supabase db push`). Confirm the `mortuary-documents` bucket exists and is private, and that RLS is on for all 14 `mortuary_*` tables (`get_advisors`).
 3. Deploy the API to staging. No new environment variables are needed; it uses the existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 4. For Thompson's organization (in staging, with fictional data): `PUT /transport/profile` with `MORTUARY` in `modules`, then the owner completes `PUT /transport/mortuary`. Rehearse a domestic and an international case end to end with fictional references, including a document upload/download through real Supabase Storage.
 5. Only then plan production, with the owner present.

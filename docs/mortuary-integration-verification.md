@@ -15,7 +15,7 @@ Office controls now support case details/status, restricted records, transport l
 
 Contract 1.2.0 adds whole-case `last_seq` to custody reads. Driver responses still exclude other legs' events and case-wide details. The case list loads up to 2,000 records and refuses to present a silently incomplete list beyond that bound.
 
-Validation: 53 API tests pass; 12 web tests pass (serial rerun after one resource-related five-second timeout); TypeScript and production web build pass. Migration 015 and SQL assertions pass with embedded PGlite PostgreSQL, using the existing SQL fixtures. Native PostgreSQL initdb was blocked by the execution environment's shared-memory restriction, so the two-session race script was not rerun. No hosted staging branch exists. Real Storage and authenticated client acceptance remain outstanding.
+Validation: 53 API tests pass; 12 web tests pass (serial rerun after one resource-related five-second timeout); TypeScript and production web build pass. Migration 016 (was 015) and SQL assertions pass with embedded PGlite PostgreSQL, using the existing SQL fixtures. Native PostgreSQL initdb was blocked by the execution environment's shared-memory restriction, so the two-session race script was not rerun. No hosted staging branch exists. Real Storage and authenticated client acceptance remain outstanding.
 
 See thompson-onboarding-checklist.md for the owner setup and rehearsal gates. No mortuary production migration or deployment was performed.
 

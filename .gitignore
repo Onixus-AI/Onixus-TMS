@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 .turbo/
+.vercel
+api/_bundle/
