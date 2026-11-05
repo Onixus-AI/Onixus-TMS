@@ -56,6 +56,11 @@ test("sign up, start a company, and only then reach the office", async () => {
     assert.equal(made.body.organization.name, "Acme Drayage");
     assert.equal((await ann("POST", "/onboarding", { company_name: "Again" })).status, 409);
     assert.equal((await ann("GET", "/loads")).status, 200);
+    // A new company opens on setup until the owner finishes it.
+    assert.deepEqual((await ann("GET", "/me")).body.setup, { modules: [], equipment: [], service_area: "", timezone: "America/New_York", complete: false });
+    assert.equal((await ann("PUT", "/transport/profile", { modules: ["TRUCKING"], equipment: ["DRY_VAN"], service_area: "", timezone: "America/New_York", complete: true })).status, 200);
+    const after = (await ann("GET", "/me")).body.setup;
+    assert.deepEqual([after.modules, after.equipment, after.complete], [["TRUCKING"], ["DRY_VAN"], true]);
   });
 });
 

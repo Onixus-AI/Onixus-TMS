@@ -152,7 +152,10 @@ export function identityRoutes(ctx: Ctx) {
 
   async function profile(user: AuthUser, m: Member | null) {
     const organization = m ? await ctx.db().get("organizations", m.org_id) : null;
-    return { user, membership: m, organization };
+    // What the company does and whether setup is finished: the app opens on setup until it is.
+    const tp = m ? await ctx.db().get<{ id: string; modules?: string[]; equipment?: string[]; service_area?: string; timezone?: string; setup_completed_at?: string | null }>("transport_profiles", m.org_id) : null;
+    const setup = m ? { modules: tp?.modules ?? [], equipment: tp?.equipment ?? [], service_area: tp?.service_area ?? "", timezone: tp?.timezone ?? "America/New_York", complete: Boolean(tp?.setup_completed_at) } : null;
+    return { user, membership: m, organization, setup };
   }
 
   // Who am I. A pending invitation for this email is accepted here, on first sign-in.

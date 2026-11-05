@@ -40,6 +40,16 @@ test('operations are company scoped, quotes freeze on acceptance, and unverified
  try{
   assert.equal((await call('PUT','/transport/profile',{modules:['DRAYAGE','WAREHOUSING'],service_area:'Ports',timezone:'America/New_York'})).status,200);
   assert.equal((await call('PUT','/transport/profile',{modules:[],service_area:'',timezone:'invalid'})).status,400);
+  // OTR is its own service and needs the equipment the carrier runs; drayage needs none.
+  assert.equal((await call('PUT','/transport/profile',{modules:['TRUCKING'],service_area:'',timezone:'America/New_York'})).status,400);
+  const otr=await call('PUT','/transport/profile',{modules:['TRUCKING'],equipment:['DRY_VAN','REEFER','DRY_VAN'],service_area:'Southeast',timezone:'America/New_York'});
+  assert.deepEqual([otr.status,otr.body.profile.equipment,otr.body.profile.setup_completed_at??null],[200,['DRY_VAN','REEFER'],null]);
+  assert.equal((await call('PUT','/transport/profile',{modules:['TRUCKING'],equipment:['CONTAINER'],service_area:'',timezone:'America/New_York'})).status,400,'containers are drayage, not OTR equipment');
+  const done=await call('PUT','/transport/profile',{modules:['DRAYAGE','TRUCKING'],equipment:['FLATBED'],service_area:'',timezone:'America/New_York',complete:true});
+  assert.ok(done.body.profile.setup_completed_at,'finishing setup is recorded');
+  const drayOnly=await call('PUT','/transport/profile',{modules:['DRAYAGE','WAREHOUSING'],equipment:['FLATBED'],service_area:'Ports',timezone:'America/New_York'});
+  assert.deepEqual([drayOnly.body.profile.equipment,Boolean(drayOnly.body.profile.setup_completed_at)],[[],true],'equipment is dropped without OTR; setup stays finished');
+  assert.equal((await call('GET','/operations')).body.otr_equipment.find((e:{id:string})=>e.id==='REEFER').name,'Reefer');
   const request={request_key:'33333333-3333-4333-8333-333333333333',title:'Fixture storage',transport_type:'WAREHOUSING',customer_email:'fixture@example.test',origin:'Terminal',destination:'Warehouse',reference:'test'};
   const made=await call('POST','/operations/jobs',request);assert.equal(made.status,201);const id=made.body.job.id;
   assert.equal((await call('POST','/operations/jobs',request)).body.job.id,id);assert.equal((await call('POST','/operations/jobs',{...request,title:'Changed'})).status,409);
