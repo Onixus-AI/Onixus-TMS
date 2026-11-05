@@ -1,13 +1,18 @@
 import {Router,type Request,type Response} from 'express';
 import {z} from 'zod';
-import {TRANSPORT_MODULES,TRANSPORT_TYPES,quoteTotal,MORTUARY_CHECKS,mortuaryGaps} from '@onixus/core';
+import {OTR_EQUIPMENT,OTR_EQUIPMENT_LABELS,TRANSPORT_MODULES,TRANSPORT_TYPES,quoteTotal,MORTUARY_CHECKS,mortuaryGaps} from '@onixus/core';
 import {scopedStore,seal,stripePayments,unseal,type Payments} from '@onixus/providers';
 import {roles} from '../auth.js';
 import {HttpError,mustGet,uuid,type Ctx} from '../http.js';
 import {connected} from './connections.js';
 
 const mortuaryInput=z.object({dispatch_phone:z.string().trim().min(5).max(60),coverage:z.string().trim().min(3).max(1000),procedure_reference:z.string().trim().min(3).max(300),checks:z.array(z.enum(['coverage','release','custody','staff','pricing','privacy'])).max(6).transform(x=>[...new Set(x)])}).strict();
-export const profileInput=z.object({modules:z.array(z.enum(TRANSPORT_TYPES)).min(1).max(7).transform(v=>[...new Set(v)]),service_area:z.string().trim().max(1000),timezone:z.string().refine(v=>{try{new Intl.DateTimeFormat('en',{timeZone:v});return true;}catch{return false;}},'Choose a valid timezone.')});
+export const profileInput=z.object({modules:z.array(z.enum(TRANSPORT_TYPES)).min(1).max(7).transform(v=>[...new Set(v)]),
+ equipment:z.array(z.enum(OTR_EQUIPMENT)).max(OTR_EQUIPMENT.length).default([]).transform(v=>[...new Set(v)]),
+ service_area:z.string().trim().max(1000),timezone:z.string().refine(v=>{try{new Intl.DateTimeFormat('en',{timeZone:v});return true;}catch{return false;}},'Choose a valid timezone.'),
+ complete:z.boolean().optional()})
+ .refine(p=>!p.modules.includes('TRUCKING')||p.equipment.length>0,{message:'Choose the equipment you run for OTR.',path:['equipment']})
+ .transform(({complete,...p})=>({...p,equipment:p.modules.includes('TRUCKING')?p.equipment:[],complete}));
 const jobInput=z.object({request_key:uuid,title:z.string().trim().min(1).max(200),transport_type:z.enum(TRANSPORT_TYPES),customer_email:z.string().trim().toLowerCase().email(),crm_customer_id:uuid.nullish(),source_thread:z.string().max(500).nullish(),load_id:uuid.nullish(),origin:z.string().trim().min(1).max(300),destination:z.string().trim().min(1).max(300),reference:z.string().trim().max(200).default('')}).strict();
 const line=z.object({description:z.string().trim().min(1).max(200),quantity:z.number().positive().max(1000000),unit_cents:z.number().int().positive().max(99999999),periods:z.number().int().min(1).max(3650).default(1)}).strict();
 const orgId=(ctx:Ctx)=>{const c=ctx.caller();const id=c?.kind==='system'?c.orgId:c?.member?.org_id;if(!id)throw new HttpError(403,'Choose a company.');return id;};
@@ -47,11 +52,12 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
  r.get('/operations',async(_req,res)=>{
   const store=ctx.store();const id=orgId(ctx);const [profile,jobs,bookings,connections,events]=await Promise.all([store.get('transport_profiles',id),store.list('service_jobs',{}, {order:'created_at',limit:200}),store.list('service_bookings',{}, {order:'starts_at',limit:200}),store.list('connections'),store.list('service_events',{}, {order:'created_at',limit:200})]);
   const stripe=connections.find(c=>c.provider==='stripe');
-  res.json({mortuary:{checks:MORTUARY_CHECKS,setup:profile?.mortuary_setup??null,gaps:mortuaryGaps(profile?.mortuary_setup as any)},modules:TRANSPORT_MODULES,profile,jobs,bookings,events,connections:{calendar:connections.some(c=>c.category==='calendar'&&c.status==='CONNECTED'),stripe:!!stripe,mail:connections.some(c=>c.category==='inbox'&&c.status==='CONNECTED')},stripe_webhook:stripe?`${ctx.env.API_PUBLIC_URL?.replace(/\/$/,'')??''}/webhooks/stripe/${stripe.id}`:null,scope:'Latest 200 jobs, bookings and events'});
+  res.json({otr_equipment:OTR_EQUIPMENT.map(id=>({id,name:OTR_EQUIPMENT_LABELS[id]})),mortuary:{checks:MORTUARY_CHECKS,setup:profile?.mortuary_setup??null,gaps:mortuaryGaps(profile?.mortuary_setup as any)},modules:TRANSPORT_MODULES,profile,jobs,bookings,events,connections:{calendar:connections.some(c=>c.category==='calendar'&&c.status==='CONNECTED'),stripe:!!stripe,mail:connections.some(c=>c.category==='inbox'&&c.status==='CONNECTED')},stripe_webhook:stripe?`${ctx.env.API_PUBLIC_URL?.replace(/\/$/,'')??''}/webhooks/stripe/${stripe.id}`:null,scope:'Latest 200 jobs, bookings and events'});
  });
  r.put('/transport/profile',roles('OWNER'),async(req,res)=>{
-  const body=profileInput.parse(req.body);const id=orgId(ctx),store=ctx.store();const prior=await store.get('transport_profiles',id);
-  res.json({profile:prior?await store.update('transport_profiles',id,{...body,updated_at:ctx.now().toISOString()}):await store.insert('transport_profiles',{id,...body})});
+  const {complete,...body}=profileInput.parse(req.body);const id=orgId(ctx),store=ctx.store();const prior=await store.get('transport_profiles',id);
+  const done=complete?{setup_completed_at:prior?.setup_completed_at??ctx.now().toISOString()}:{};
+  res.json({profile:prior?await store.update('transport_profiles',id,{...body,...done,updated_at:ctx.now().toISOString()}):await store.insert('transport_profiles',{id,...body,...done})});
  });
  r.put('/transport/mortuary',roles('OWNER'),async(req,res)=>{
   const body=mortuaryInput.parse(req.body),id=orgId(ctx),store=ctx.store(),profile=await store.get('transport_profiles',id);

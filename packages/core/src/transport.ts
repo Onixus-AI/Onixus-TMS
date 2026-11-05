@@ -2,14 +2,22 @@
 export const TRANSPORT_TYPES = ['DRAYAGE','TRUCKING','WAREHOUSING','COURIER','MEDICAL','MORTUARY','TOWING'] as const;
 export type TransportType = typeof TRANSPORT_TYPES[number];
 export const TRANSPORT_MODULES = [
- {id:'DRAYAGE',name:'Drayage',fields:['container','terminal','last free day','empty return'],ready:'Existing container and dispatch workflow'},
- {id:'TRUCKING',name:'Trucking',fields:['equipment','weight','pickup','delivery'],ready:'Existing freight and dispatch workflow'},
+ {id:'DRAYAGE',name:'Drayage',fields:['container','terminal','last free day','empty return'],ready:'Port and rail containers: terminals, chassis, last free day and empty returns'},
+ {id:'TRUCKING',name:'OTR / over-the-road',fields:['equipment','weight','pickup','delivery'],ready:'Truckload and LTL freight on your own equipment: dry van, reefer, flatbed and more'},
  {id:'WAREHOUSING',name:'Warehousing',fields:['pallets','storage duration','handling','location'],ready:'Service intake and quoted jobs'},
  {id:'COURIER',name:'Local delivery / courier',fields:['package count','pickup window','delivery window','proof of delivery'],ready:'Service intake; specialized dispatch requires setup'},
  {id:'MEDICAL',name:'Medical transport',fields:['mobility assistance','vehicle requirements','pickup window','destination'],ready:'Service intake; clinical data and eligibility workflows require setup'},
  {id:'MORTUARY',name:'Mortuary transport',fields:['case reference','authorizing contact','origin','destination','release documents'],ready:'Service intake; chain of custody and state-specific release workflows require setup'},
  {id:'TOWING',name:'Towing',fields:['vehicle class','pickup','destination','recovery equipment'],ready:'Service intake; specialized dispatch requires setup'},
 ] as const;
+
+/** Equipment an OTR carrier runs (chosen at setup; drayage containers are their own service). */
+export const OTR_EQUIPMENT = ['DRY_VAN','REEFER','FLATBED','STEP_DECK','POWER_ONLY','BOX_TRUCK','HOTSHOT','CARGO_VAN','CAR_HAULER','TANKER'] as const;
+export type OtrEquipment = typeof OTR_EQUIPMENT[number];
+export const OTR_EQUIPMENT_LABELS: Record<OtrEquipment,string> = {
+ DRY_VAN:'Dry van',REEFER:'Reefer',FLATBED:'Flatbed',STEP_DECK:'Step deck',POWER_ONLY:'Power only',BOX_TRUCK:'Box truck',
+ HOTSHOT:'Hotshot',CARGO_VAN:'Cargo van',CAR_HAULER:'Car hauler',TANKER:'Tanker',
+};
 
 export function quoteTotal(lines: {quantity:number;unit_cents:number;periods:number}[]):number {
  if(!lines.length||lines.length>50)throw new Error('A quote needs 1–50 priced lines.');

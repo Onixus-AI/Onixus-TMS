@@ -12,11 +12,13 @@ import { Overview } from "./overview";
 import { Platform } from "./platform";
 import { Containers, Customers, Dispatch, Fleet, Loads, Problem } from "./trucking";
 import { OnixusLogo } from "./logo";
+import { SetupFlow } from "./setup";
 
 export type Me = {
   user: { id: string; email: string };
   membership: { role: "OWNER" | "DISPATCHER" | "DRIVER"; driver_id: string | null } | null;
   organization: { name: string; kind: string } | null;
+  setup: { modules: string[]; equipment: string[]; service_area: string; timezone: string; complete: boolean } | null;
 };
 
 // Back from a provider's sign-in (Gmail, Outlook, QuickBooks): read once at load, then tidy the address bar.
@@ -50,7 +52,7 @@ function Account({ me }: { me: Me }) {
 function Shell({ me, children, tabs, tab, setTab }: { me: Me; children: React.ReactNode; tabs: [Tab, string][]; tab?: Tab; setTab?: (t: Tab) => void }) {
   const [collapsed,setCollapsed]=useState(false);
   return (
-    <div className={`shell tms-shell ${collapsed?"sidebar-collapsed":""}`}>
+    <div className={`shell tms-shell ${collapsed||!tabs.length?"sidebar-collapsed":""}`}>
       <header className="topbar">
         <div className="brand">
           <OnixusLogo />
@@ -59,7 +61,7 @@ function Shell({ me, children, tabs, tab, setTab }: { me: Me; children: React.Re
             <span className="org">{me.organization?.name ?? "Transport OS"}</span>
           </div>
         </div>
-        <button aria-label="Toggle navigation" aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}>☰</button>
+        {tabs.length>0?<button aria-label="Toggle navigation" aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}>☰</button>:<span style={{marginLeft:"auto"}}/>}
         <Account me={me} />
       </header>
       {!collapsed&&tabs.length>0&&<aside className="tms-sidebar">        {tabs.length > 0 && (
@@ -75,8 +77,10 @@ function Shell({ me, children, tabs, tab, setTab }: { me: Me; children: React.Re
   );
 }
 
-function Office({ me }: { me: Me }) {
+function Office({ me, reload }: { me: Me; reload: () => void }) {
   const owner = me.membership?.role === "OWNER";
+  const [editingSetup, setEditingSetup] = useState(false);
+  const modules = me.setup?.modules ?? [];
   const drives = Boolean(me.membership?.driver_id);
   // Owner-operators mostly drive: open on their trips.
   const returned = connectionReturn;
@@ -90,14 +94,20 @@ function Office({ me }: { me: Me }) {
   const tabs: [Tab, string][] = [
     ["operations", "Operations"], ["overview", "Overview"],
     ...(drives ? ([["mytrips", "My trips"]] as [Tab, string][]) : []),
-    ["loads", "Loads"], ["dispatch", "Dispatch"], ["containers", "Containers"], ["billing", "Billing"], ["fleet", "Fleet"], ["customers", "Customers"],
+    ["loads", "Loads"], ["dispatch", "Dispatch"],
+    // Containers are drayage work; OTR and other services don't see them.
+    ...(modules.includes("DRAYAGE") ? ([["containers", "Containers"]] as [Tab, string][]) : []),
+    ["billing", "Billing"], ["fleet", "Fleet"], ["customers", "Customers"],
     ["connections", "Connections"],
     ...(owner ? ([["team", "Team"], ["platform", "Platform"]] as [Tab, string][]) : []),
   ];
+  // Setup is a page of its own, without the sidebar, until the owner finishes it.
+  if (owner && me.setup && (!me.setup.complete || editingSetup))
+    return <Shell me={me} tabs={[]}><SetupFlow initial={me.setup} onDone={() => { setEditingSetup(false); reload(); }} onCancel={me.setup.complete ? () => setEditingSetup(false) : undefined} /></Shell>;
   return (
     <NavContext.Provider value={{ go, intent, clearIntent: () => setIntent({}) }}>
       <Shell me={me} tabs={tabs} tab={tab} setTab={(t) => go(t)}>
-        {tab === "operations" && <Operations owner={owner} />}
+        {tab === "operations" && <Operations owner={owner} onEditSetup={() => setEditingSetup(true)} />}
         {tab === "overview" && <Overview me={me} />}
         {tab === "mytrips" && <DriverApp />}
         {tab === "loads" && <Loads />}
@@ -146,5 +156,5 @@ export default function App() {
   if (!me) return <p className="center muted">Loading your company…</p>;
   if (!me.membership) return <Onboarding email={me.user.email} onDone={loadMe} />;
   if (me.membership.role === "DRIVER") return <Shell me={me} tabs={[]}><DriverApp /></Shell>;
-  return <Office me={me} />;
+  return <Office me={me} reload={loadMe} />;
 }
