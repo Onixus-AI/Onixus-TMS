@@ -14,6 +14,7 @@ import { containerRoutes, portWebhook } from "./routes/containers.js";
 import { accountRoutes, platformAccountRoutes } from "./routes/accounts.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { commsRoutes } from "./routes/comms.js";
+import { pricingRoutes } from "./routes/pricing.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import { connected, connectionRoutes, oauthCallback } from "./routes/connections.js";
 
@@ -133,7 +134,7 @@ export function createApp(env: Env, deps: Deps = {}) {
 
   // The office: owners and dispatchers (or the platform acting inside a company).
   app.use(roles("OWNER", "DISPATCHER"));
-  app.use(operationsRoutes(ctx),suiteRoutes(ctx));
+  app.use(operationsRoutes(ctx), pricingRoutes(ctx), suiteRoutes(ctx));
   app.use(loadRoutes(ctx), legRoutes(ctx), orderRoutes(ctx), fleetRoutes(ctx), containerRoutes(ctx), accountRoutes(ctx), overviewRoutes(ctx), commsRoutes(ctx), mcpRoutes(ctx), connectionRoutes(ctx));
 
   // Live positions of this company's trucks. The GPS server is shared, so
