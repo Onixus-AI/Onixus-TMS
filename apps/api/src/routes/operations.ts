@@ -13,7 +13,7 @@ export const profileInput=z.object({modules:z.array(z.enum(TRANSPORT_TYPES)).min
  complete:z.boolean().optional()})
  .refine(p=>!p.modules.includes('TRUCKING')||p.equipment.length>0,{message:'Choose the equipment you run for OTR.',path:['equipment']})
  .transform(({complete,...p})=>({...p,equipment:p.modules.includes('TRUCKING')?p.equipment:[],complete}));
-const jobInput=z.object({request_key:uuid,title:z.string().trim().min(1).max(200),transport_type:z.enum(TRANSPORT_TYPES),customer_email:z.string().trim().toLowerCase().email(),crm_customer_id:uuid.nullish(),source_thread:z.string().max(500).nullish(),load_id:uuid.nullish(),origin:z.string().trim().min(1).max(300),destination:z.string().trim().min(1).max(300),reference:z.string().trim().max(200).default('')}).strict();
+const jobInput=z.object({request_key:uuid,title:z.string().trim().min(1).max(200),transport_type:z.enum(TRANSPORT_TYPES),customer_id:uuid.nullish(),customer_email:z.string().trim().toLowerCase().email(),crm_customer_id:uuid.nullish(),source_thread:z.string().max(500).nullish(),load_id:uuid.nullish(),origin:z.string().trim().min(1).max(300),destination:z.string().trim().min(1).max(300),reference:z.string().trim().max(200).default('')}).strict();
 const line=z.object({description:z.string().trim().min(1).max(200),quantity:z.number().positive().max(1000000),unit_cents:z.number().int().positive().max(99999999),periods:z.number().int().min(1).max(3650).default(1)}).strict();
 const orgId=(ctx:Ctx)=>{const c=ctx.caller();const id=c?.kind==='system'?c.orgId:c?.member?.org_id;if(!id)throw new HttpError(403,'Choose a company.');return id;};
 type Job=Record<string,unknown>&{id:string;org_id:string;status:string;payment_status:string;amount_cents:number;customer_email:string;title:string;expires_at:string;checkout_id:string|null;checkout_url:string|null;checkout_started_at:string|null};
@@ -75,6 +75,7 @@ export function operationsRoutes(ctx:Ctx){const r=Router();
  r.post('/operations/jobs',async(req,res)=>{
   const body=jobInput.parse(req.body),store=ctx.store();const profile=await store.get('transport_profiles',orgId(ctx));
   if(!(profile?.modules as string[]|undefined)?.includes(body.transport_type))throw new HttpError(409,'Enable this transport service in Business setup first.');
+  if(body.customer_id)await mustGet(ctx,'customers',body.customer_id,'Customer');
   if(body.load_id)await mustGet(ctx,'loads',body.load_id,'Load');
   const [prior]=await store.list('service_jobs',{request_key:body.request_key},{limit:1});
   if(prior){if(Object.entries(body).some(([k,v])=>v!=null&&prior[k]!==v))throw new HttpError(409,'This request key was used for a different job.');return void res.json({job:prior});}
